@@ -22,9 +22,24 @@ jobs:
         run: pip install requests beautifulsoup4
 
       - name: Kör bevakning
-        env:
-          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         run: python check_jobs.py
+
+      - name: Skicka mejl om nya annonser
+        run: |
+          SUBJECT=$(cat email_subject.txt)
+          BODY=$(cat email_body.txt)
+          if [ -n "$SUBJECT" ]; then
+            echo "Skickar mejl..."
+            curl -s --url "smtps://smtp.gmail.com:465" \
+              --ssl-reqd \
+              --mail-from "${{ secrets.MAIL_FROM }}" \
+              --mail-rcpt "jari.asplund@tng.se" \
+              --user "${{ secrets.MAIL_FROM }}:${{ secrets.MAIL_PASSWORD }}" \
+              -T <(echo -e "From: Jobbbevakning <${{ secrets.MAIL_FROM }}>\nTo: jari.asplund@tng.se\nSubject: $SUBJECT\n\n$BODY")
+            echo "✅ Mejl skickat"
+          else
+            echo "😴 Inga nya annonser – inget mejl skickas"
+          fi
 
       - name: Spara uppdaterad cache
         run: |
