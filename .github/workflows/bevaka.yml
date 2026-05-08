@@ -1,0 +1,35 @@
+name: Jobbannons-bevakning
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'  # Varje måndag kl 07:00
+  workflow_dispatch:       # Kör manuellt via Actions-knappen
+
+jobs:
+  bevaka:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Hämta repo
+        uses: actions/checkout@v4
+
+      - name: Installera Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installera beroenden
+        run: pip install requests beautifulsoup4
+
+      - name: Kör bevakning
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        run: python check_jobs.py
+
+      - name: Spara uppdaterad cache
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add seen_jobs.json
+          git diff --cached --quiet || git commit -m "Uppdatera jobbcache $(date '+%Y-%m-%d')"
+          git push
