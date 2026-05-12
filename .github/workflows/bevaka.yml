@@ -3,7 +3,16 @@ name: Jobbannons-bevakning
 on:
   schedule:
     - cron: '0 7 * * 1'  # Varje måndag kl 07:00
-  workflow_dispatch:       # Kör manuellt via Actions-knappen
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Visa alla nuvarande jobb (används vid lansering)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   bevaka:
@@ -19,10 +28,18 @@ jobs:
           python-version: '3.11'
 
       - name: Installera beroenden
-        run: pip install requests beautifulsoup4
+        run: pip install -r requirements.txt
+
+      - name: Installera Playwright-webbläsare
+        run: playwright install chromium --with-deps
 
       - name: Kör bevakning
-        run: python check_jobs.py
+        run: |
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            python check_jobs.py --force
+          else
+            python check_jobs.py
+          fi
 
       - name: Skicka mejl om nya annonser
         run: |
@@ -36,9 +53,9 @@ jobs:
               --mail-rcpt "jari.asplund@tng.se" \
               --user "${{ secrets.MAIL_FROM }}:${{ secrets.MAIL_PASSWORD }}" \
               -T <(echo -e "From: Jobbbevakning <${{ secrets.MAIL_FROM }}>\nTo: jari.asplund@tng.se\nSubject: $SUBJECT\n\n$BODY")
-            echo "✅ Mejl skickat"
+            echo "Mejl skickat"
           else
-            echo "😴 Inga nya annonser – inget mejl skickas"
+            echo "Inga nya annonser – inget mejl skickas"
           fi
 
       - name: Spara uppdaterad cache
