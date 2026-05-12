@@ -1,3 +1,4 @@
+import html as html_module
 import json
 import os
 import re
@@ -37,7 +38,7 @@ SWEDISH_CITIES = {
     "botkyrka", "nynäshamn", "värmdö", "ekerö", "jordbro", "kallhäll",
     "häggvik", "enköping", "mora", "åseda", "helsingborg", "hovsjö",
     "arendal", "kiruna", "mjällby", "sölvesborg",
-    "remote", "distans", "hybridarbete", "hybrid", "hela sverige", "sverige", "sweden",
+    "remote", "distans", "hybridarbete", "hybrid", "hela sverige", "hela landet", "sverige", "sweden",
 }
 
 NON_SWEDISH_CITIES = {
@@ -214,6 +215,18 @@ def extract_city_from_dom(anchor):
     return None
 
 
+def clean_city(text):
+    if not text:
+        return text
+    # Strip leading label word (e.g. "locationStockholm" → "Stockholm")
+    text = re.sub(r'^[a-z]+', '', text).strip()
+    # Strip country code + rest: "Södertälje, SE, 151 65" → "Södertälje"
+    text = re.sub(r',\s*[A-Z]{2}[\s,].*$', '', text).strip()
+    # Strip standalone postal codes at end
+    text = re.sub(r',?\s*\d{3}\s?\d{2}\s*$', '', text).strip()
+    return text.rstrip(",").strip()
+
+
 def is_swedish_location(city_text):
     if not city_text:
         return True
@@ -227,6 +240,29 @@ def is_swedish_location(city_text):
     if any(swedish in t for swedish in SWEDISH_CITIES):
         return True
     return True  # okänd plats – behåll
+
+
+def fetch_city_for_job(url):
+    """Fetch individual job page and extract city — used as fallback when listing page has no city."""
+    try:
+        resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        soup = BeautifulSoup(resp.text, "html.parser")
+    except Exception:
+        return None
+    # Schema.org structured data — highest confidence
+    for tag in soup.find_all(attrs={"itemprop": "addressLocality"}):
+        text = clean_city(tag.get_text(strip=True))
+        if text and len(text) < 40:
+            return text
+    # Elements with location-related classes or ids — only return known Swedish cities
+    for tag in soup.find_all(True):
+        classes = " ".join(tag.get("class", []))
+        tag_id = tag.get("id", "")
+        if LOCATION_CLASSES.search(classes) or LOCATION_CLASSES.search(tag_id):
+            text = clean_city(tag.get_text(strip=True))
+            if text and 2 < len(text) < 40 and text.lower() in SWEDISH_CITIES:
+                return text
+    return None
 
 
 def parse_jobs_from_html(html, customer, base_url):
@@ -244,6 +280,7 @@ def parse_jobs_from_html(html, customer, base_url):
         if not href_matches(href, patterns) or href in seen_urls:
             continue
 
+        full_anchor_text = a.get_text(" ", strip=True)
         raw_title = get_link_title(a).strip()
         if not raw_title or len(raw_title) <= 3:
             continue
@@ -284,9 +321,21 @@ def parse_jobs_from_html(html, customer, base_url):
         if re.search(r'\d{3}\s?\d{2}', title):
             continue
 
-        raw_city = extract_city_from_dom(a) or extract_city_from_title(title)
-        # Clean city: strip "Plats" prefix (ICA) and trailing comma/whitespace
-        city = re.sub(r'^Plats', '', raw_city or '').strip().rstrip(',').strip() if raw_city else None
+        raw_city = extract_city_from_dom(a)
+        if not raw_city:
+            title_city = extract_city_from_title(title)
+            if title_city and title_city.lower() in SWEDISH_CITIES:
+                raw_city = title_city
+        # Try Teamtailor "Title · Dept · City" pattern from full anchor text
+        # Only accept if the last segment is a known Swedish city (avoids picking up company names)
+        if not raw_city and "·" in full_anchor_text:
+            dot_parts = [p.strip() for p in full_anchor_text.split("·")]
+            last_part = dot_parts[-1].rstrip(",").strip() if dot_parts else ""
+            if last_part and 1 < len(last_part) < 35 and last_part[:1].isupper():
+                if last_part.lower() in SWEDISH_CITIES:
+                    raw_city = last_part
+        # Clean city: strip "Plats" prefix (ICA), label prefixes, postal codes
+        city = clean_city(re.sub(r'^Plats', '', raw_city or '').strip()) if raw_city else None
 
         if not is_swedish_location(city):
             skipped_abroad += 1
@@ -321,6 +370,10 @@ def fetch_jobs_requests(customer):
         return []
 
     jobs, skipped = parse_jobs_from_html(resp.text, customer, url)
+    for job in jobs:
+        if not job["city"]:
+            fetched = fetch_city_for_job(job["url"])
+            job["city"] = clean_city(fetched) if fetched else ""
     msg = f"  → {name}: hittade {len(jobs)} annonser"
     if skipped:
         msg += f" ({skipped} utomlands filtrerade)"
@@ -363,6 +416,10 @@ def fetch_jobs_playwright(customer):
         return []
 
     jobs, skipped = parse_jobs_from_html(content, customer, url)
+    for job in jobs:
+        if not job["city"]:
+            fetched = fetch_city_for_job(job["url"])
+            job["city"] = clean_city(fetched) if fetched else ""
     msg = f"  → {name}: hittade {len(jobs)} annonser (JS)"
     if skipped:
         msg += f" ({skipped} utomlands filtrerade)"
@@ -392,44 +449,50 @@ def find_new_jobs(customer_name, current_jobs, seen_cache, force=False):
     return new_jobs, current_ids
 
 
-def format_job_line(j):
-    city_part = f"  ({j['city']})" if j.get("city") else ""
-    return f"     – {j['title']}{city_part}\n       {j['url']}"
+def _job_li(j):
+    title = html_module.escape(j["title"])
+    url = html_module.escape(j["url"])
+    city = f' <span style="color:#666;font-size:13px;">({html_module.escape(j["city"])})</span>' if j.get("city") else ""
+    return f'<li style="margin-bottom:4px;"><a href="{url}" style="color:#0055cc;">{title}</a>{city}</li>'
 
 
 def build_email_body(new_by_category):
     today = datetime.now().strftime("%Y-%m-%d")
     total = sum(len(jobs) for companies in new_by_category.values() for jobs in companies.values())
-    lines = [
-        f"Jobbannons-bevakning – {today}",
-        f"Totalt {total} nya annonser",
-        "",
-    ]
+
+    h = []
+    h.append('<!DOCTYPE html><html><head><meta charset="utf-8"></head>')
+    h.append('<body style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;color:#222;padding:16px;">')
+    h.append(f'<p style="color:#888;font-size:13px;margin-bottom:2px;">Jobbannons-bevakning – {today}</p>')
+    h.append(f'<h2 style="margin-top:0;">{total} nya annonser</h2>')
 
     for category in ["Fokuskund", "KAM-kund"]:
         companies = new_by_category.get(category, {})
         if not companies:
             continue
-        lines.append("=" * 40)
-        lines.append(f"📌 {category.upper()}ER")
-        lines.append("=" * 40)
+        h.append(f'<h3 style="background:#f4f4f4;padding:8px 12px;margin:28px 0 8px;border-left:4px solid #333;">📌 {category.upper()}ER</h3>')
 
         for company_name, jobs in sorted(companies.items()):
-            lines.append(f"\n{company_name}")
+            h.append(f'<h4 style="margin:16px 0 4px;">{html_module.escape(company_name)}</h4>')
             white = [j for j in jobs if not j["blue_collar"]]
             blue = [j for j in jobs if j["blue_collar"]]
-
             if white:
-                lines.append("  👔 Tjänstemän:")
+                h.append('<p style="margin:4px 0;font-weight:bold;">👔 Tjänstemän</p>')
+                h.append('<ul style="margin:0 0 8px;padding-left:20px;">')
                 for j in white:
-                    lines.append(format_job_line(j))
+                    h.append(_job_li(j))
+                h.append('</ul>')
             if blue:
-                lines.append("  👷 Övriga:")
+                h.append('<p style="margin:4px 0;font-weight:bold;">👷 Övriga</p>')
+                h.append('<ul style="margin:0 0 8px;padding-left:20px;">')
                 for j in blue:
-                    lines.append(format_job_line(j))
+                    h.append(_job_li(j))
+                h.append('</ul>')
 
-    lines += ["", "---", "Jobbannons-bevakaren (GitHub Actions)"]
-    return "\n".join(lines)
+    h.append('<hr style="border:none;border-top:1px solid #ddd;margin-top:28px;">')
+    h.append('<p style="color:#aaa;font-size:11px;text-align:center;">Jobbannons-bevakaren (GitHub Actions)</p>')
+    h.append('</body></html>')
+    return "\n".join(h)
 
 
 def write_output(new_by_category):

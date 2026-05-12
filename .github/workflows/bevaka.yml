@@ -44,15 +44,17 @@ jobs:
       - name: Skicka mejl om nya annonser
         run: |
           SUBJECT=$(cat email_subject.txt)
-          BODY=$(cat email_body.txt)
           if [ -n "$SUBJECT" ]; then
             echo "Skickar mejl..."
+            printf "From: Jobbbevakning <%s>\nTo: jari.asplund@tng.se\nSubject: %s\nMIME-Version: 1.0\nContent-Type: text/html; charset=utf-8\n\n" \
+              "${{ secrets.MAIL_FROM }}" "$SUBJECT" > /tmp/email_message.txt
+            cat email_body.txt >> /tmp/email_message.txt
             curl -s --url "smtps://smtp.gmail.com:465" \
               --ssl-reqd \
               --mail-from "${{ secrets.MAIL_FROM }}" \
               --mail-rcpt "jari.asplund@tng.se" \
               --user "${{ secrets.MAIL_FROM }}:${{ secrets.MAIL_PASSWORD }}" \
-              -T <(echo -e "From: Jobbbevakning <${{ secrets.MAIL_FROM }}>\nTo: jari.asplund@tng.se\nSubject: $SUBJECT\n\n$BODY")
+              -T /tmp/email_message.txt
             echo "Mejl skickat"
           else
             echo "Inga nya annonser – inget mejl skickas"
