@@ -4,7 +4,7 @@ import os
 import re
 import sys
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 from datetime import datetime
 
 CUSTOMERS_FILE = "customers.json"
@@ -146,16 +146,25 @@ def title_has_non_swedish_location(title):
     return any(city in t for city in NON_SWEDISH_CITIES)
 
 
+def _direct_text(tag):
+    """Return only the direct (non-nested) text of a tag, ignoring child elements."""
+    return "".join(str(c) for c in tag.children if isinstance(c, NavigableString)).strip()
+
+
 def get_link_title(anchor):
-    """Prefer headings inside the link (Teamtailor etc.) over raw get_text()."""
+    """Prefer headings inside the link (Teamtailor etc.) over raw get_text().
+    Uses direct text first to avoid picking up nested department/company spans."""
     for tag in anchor.find_all(["h2", "h3", "h4", "strong"]):
+        text = _direct_text(tag)
+        if text and len(text) > 5:
+            return text
         text = tag.get_text(strip=True)
         if text and len(text) > 5:
             return text
     for tag in anchor.find_all(True):
         classes = " ".join(tag.get("class", []))
         if re.search(r'title|heading|job.?name|position.?name', classes, re.IGNORECASE):
-            text = tag.get_text(strip=True)
+            text = _direct_text(tag) or tag.get_text(strip=True)
             if text and 5 < len(text) < 200:
                 return text
     return anchor.get_text(strip=True)
@@ -211,6 +220,9 @@ def extract_city_from_dom(anchor):
             if LOCATION_CLASSES.search(classes) or LOCATION_CLASSES.search(tag_id):
                 text = tag.get_text(strip=True)
                 if text and len(text) < 36:
+                    # Skip CamelCase-concatenated text (title+city merged, e.g. "ExamensarbeteSödertälje")
+                    if re.search(r'[a-zåäö][A-ZÅÄÖ]', text):
+                        continue
                     return text
     return None
 
@@ -218,6 +230,8 @@ def extract_city_from_dom(anchor):
 def clean_city(text):
     if not text:
         return text
+    # Strip Swedish county prefix: "Stockholms län, Ekerö" → "Ekerö"
+    text = re.sub(r'^[A-ZÅÄÖ][a-zåäö]+s? [lL]än,\s*', '', text).strip()
     # Strip leading label word (e.g. "locationStockholm" → "Stockholm")
     text = re.sub(r'^[a-z]+', '', text).strip()
     # Strip country code + rest: "Södertälje, SE, 151 65" → "Södertälje"
@@ -249,7 +263,21 @@ def fetch_city_for_job(url):
         soup = BeautifulSoup(resp.text, "html.parser")
     except Exception:
         return None
-    # Schema.org structured data — highest confidence
+    # JSON-LD structured data (JobPosting schema)
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+            if isinstance(data, dict):
+                loc = data.get("jobLocation", {})
+                if isinstance(loc, dict):
+                    addr = loc.get("address", {})
+                    if isinstance(addr, dict):
+                        city = addr.get("addressLocality", "")
+                        if city:
+                            return clean_city(city)
+        except Exception:
+            pass
+    # Schema.org microdata — high confidence
     for tag in soup.find_all(attrs={"itemprop": "addressLocality"}):
         text = clean_city(tag.get_text(strip=True))
         if text and len(text) < 40:

@@ -135,7 +135,7 @@
     "name": "SEB",
     "category": "KAM-kund",
     "url": "https://sebgroup.com/sv/karriar/hitta-ditt-nya-jobb/vara-lediga-tjanster",
-    "job_link_pattern": "sebgroup.com/sv/karriar/",
+    "job_link_pattern": "sebgroup.com/sv/karriar/hitta-ditt-nya-jobb/vara-lediga-tjanster/",
     "use_playwright": true
   },
   {
