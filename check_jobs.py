@@ -138,6 +138,13 @@ def extract_city_from_title(title):
         m = re.search(pattern, title)
         if m:
             return m.group(1)
+    # Last word(s) match a known Swedish city: "Servicetekniker Helsingborg"
+    words = title.split()
+    for n in (2, 1):
+        if len(words) >= n + 1:
+            candidate = " ".join(words[-n:])
+            if candidate.lower() in SWEDISH_CITIES:
+                return candidate
     return None
 
 
