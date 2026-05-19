@@ -3,7 +3,8 @@
     "name": "Adda",
     "category": "Fokuskund",
     "url": "https://jobb.adda.se/jobs",
-    "job_link_pattern": "jobb.adda.se/jobs/"
+    "job_link_pattern": "jobb.adda.se/jobs/",
+    "use_playwright": true
   },
   {
     "name": "Ahlsell",
@@ -122,7 +123,8 @@
     "name": "Skandia",
     "category": "KAM-kund",
     "url": "https://karriar.skandia.se/jobs",
-    "job_link_pattern": "karriar.skandia.se/jobs/"
+    "job_link_pattern": "karriar.skandia.se/jobs/",
+    "use_playwright": true
   },
   {
     "name": "Länsförsäkringar",
@@ -149,7 +151,8 @@
     "name": "Svea Bank",
     "category": "KAM-kund",
     "url": "https://career.svea.com/jobs",
-    "job_link_pattern": "career.svea.com/jobs/"
+    "job_link_pattern": "career.svea.com/jobs/",
+    "use_playwright": true
   },
   {
     "name": "SVT",
@@ -181,6 +184,7 @@
     "name": "Volkswagen",
     "category": "KAM-kund",
     "url": "https://karriar.vwgroup.se/jobs",
-    "job_link_pattern": "karriar.vwgroup.se/jobs/"
+    "job_link_pattern": "karriar.vwgroup.se/jobs/",
+    "use_playwright": true
   }
 ]

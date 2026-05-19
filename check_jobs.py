@@ -48,6 +48,9 @@ NON_SWEDISH_CITIES = {
     "norway", "norge",
     "london", "berlin", "hamburg", "amsterdam", "paris",
     "warsaw", "warszawa", "riga", "tallinn", "vilnius", "vilniuje", "panevežys", "panevėžyje",
+    "kaunas", "klaipėda", "šiauliai",
+    "tartu", "pärnu", "narva",
+    "ventspils", "liepāja", "daugavpils", "jelgava", "jūrmala",
     "new york", "san francisco", "toronto",
     "barcelona",
     "estonia", "latvia", "lithuania",
@@ -93,6 +96,7 @@ GENERIC_LINK_TEXTS = {
     "vår affär", "hitta oss",
     "öppnas i nytt fönster", "opens in new window",
     "syfte och värderingar", "bolagsstyrning", "ekonomi",
+    "anchor",
 }
 
 
@@ -361,14 +365,16 @@ def parse_jobs_from_html(html, customer, base_url):
             title_city = extract_city_from_title(title)
             if title_city and title_city.lower() in SWEDISH_CITIES:
                 raw_city = title_city
-        # Try Teamtailor "Title · Dept · City" pattern from full anchor text
-        # Only accept if the last segment is a known Swedish city (avoids picking up company names)
+        # Try Teamtailor "Title · Dept · City1, City2" pattern from full anchor text
+        # Walk segments from right to left; take first word of each segment if it's a known Swedish city
         if not raw_city and "·" in full_anchor_text:
             dot_parts = [p.strip() for p in full_anchor_text.split("·")]
-            last_part = dot_parts[-1].rstrip(",").strip() if dot_parts else ""
-            if last_part and 1 < len(last_part) < 35 and last_part[:1].isupper():
-                if last_part.lower() in SWEDISH_CITIES:
-                    raw_city = last_part
+            for part in reversed(dot_parts[1:]):   # skip first part (title)
+                candidate = part.split(",")[0].strip()  # first city if multiple
+                if candidate and 1 < len(candidate) < 35 and candidate[:1].isupper():
+                    if candidate.lower() in SWEDISH_CITIES:
+                        raw_city = candidate
+                        break
         # Clean city: strip "Plats" prefix (ICA), label prefixes, postal codes
         city = clean_city(re.sub(r'^Plats', '', raw_city or '').strip()) if raw_city else None
 
