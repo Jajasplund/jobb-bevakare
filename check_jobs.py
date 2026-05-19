@@ -418,7 +418,8 @@ def parse_jobs_from_html(html, customer, base_url):
 
         def _accept_city(candidate):
             """Return (is_geographic, is_abstract) for a candidate city string."""
-            cl = candidate.lower()
+            # Normalize: strip trailing punctuation/whitespace before comparing
+            cl = candidate.lower().strip().rstrip(".,; ")
             if cl in ABSTRACT_LOCATIONS:
                 return False, True
             # Accept any Swedish city OR unknown short string (kept for unknown municipalities)
