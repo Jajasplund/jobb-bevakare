@@ -96,8 +96,17 @@ GENERIC_LINK_TEXTS = {
     "vår affär", "hitta oss",
     "öppnas i nytt fönster", "opens in new window",
     "syfte och värderingar", "bolagsstyrning", "ekonomi",
-    "anchor",
+    "anchor", "anchor anchor",
 }
+
+# Location terms that are valid for filtering but not useful as displayed city
+ABSTRACT_LOCATIONS = {
+    "hybridarbete", "hybrid", "remote", "distans",
+    "hela sverige", "hela landet", "sverige", "sweden",
+}
+
+# Known UI/accessibility artifacts that should never be treated as job titles
+TITLE_ARTIFACTS = {"anchor", "#", "↑", "▲", "»", "›"}
 
 
 def load_json(path):
@@ -163,21 +172,43 @@ def _direct_text(tag):
 
 
 def get_link_title(anchor):
-    """Prefer headings inside the link (Teamtailor etc.) over raw get_text().
-    Uses direct text first to avoid picking up nested department/company spans."""
+    """Extract job title from a link element, handling multiple site structures.
+
+    Priority order:
+    1. Direct text nodes of heading (avoids sibling dept/company spans)
+    2. First child element of heading (Teamtailor: <h3><span>Title</span><span>Dept</span></h3>)
+    3. Full heading text with separator (last resort)
+    4. Title-class elements
+    5. Direct text nodes of anchor (ICA: <a><span aria>anchor</span>Real title text</a>)
+    6. Full anchor text
+    """
     for tag in anchor.find_all(["h2", "h3", "h4", "strong"]):
-        text = _direct_text(tag)
-        if text and len(text) > 5:
-            return text
-        text = tag.get_text(strip=True)
-        if text and len(text) > 5:
-            return text
+        # 1. Direct text nodes only — skips nested dept/company spans
+        direct = _direct_text(tag)
+        if direct and len(direct) > 5 and direct.lower() not in TITLE_ARTIFACTS:
+            return direct
+        # 2. First child element — for <h3><span>Title</span><span>Dept</span></h3>
+        for child in tag.children:
+            if hasattr(child, 'get_text'):
+                child_text = _direct_text(child) or child.get_text(strip=True)
+                if child_text and len(child_text) > 5 and child_text.lower() not in TITLE_ARTIFACTS:
+                    return child_text
+                break  # only try first child element
+        # 3. Full heading text with space separator
+        full = tag.get_text(" ", strip=True)
+        if full and len(full) > 5 and full.lower() not in TITLE_ARTIFACTS:
+            return full
+    # 4. Elements with title-related CSS classes
     for tag in anchor.find_all(True):
         classes = " ".join(tag.get("class", []))
         if re.search(r'title|heading|job.?name|position.?name', classes, re.IGNORECASE):
             text = _direct_text(tag) or tag.get_text(strip=True)
-            if text and 5 < len(text) < 200:
+            if text and 5 < len(text) < 200 and text.lower() not in TITLE_ARTIFACTS:
                 return text
+    # 5. Direct text of the anchor itself (ICA: title is a text node after accessibility spans)
+    direct = _direct_text(anchor)
+    if direct and len(direct) > 5 and direct.lower() not in TITLE_ARTIFACTS:
+        return direct
     return anchor.get_text(strip=True)
 
 
@@ -366,15 +397,52 @@ def parse_jobs_from_html(html, customer, base_url):
             if title_city and title_city.lower() in SWEDISH_CITIES:
                 raw_city = title_city
         # Try Teamtailor "Title · Dept · City1, City2" pattern from full anchor text
-        # Walk segments from right to left; take first word of each segment if it's a known Swedish city
+        # Walk segments from right to left; prefer geographic city over abstract (hybridarbete etc.)
         if not raw_city and "·" in full_anchor_text:
             dot_parts = [p.strip() for p in full_anchor_text.split("·")]
+            abstract_fallback = None
             for part in reversed(dot_parts[1:]):   # skip first part (title)
                 candidate = part.split(",")[0].strip()  # first city if multiple
                 if candidate and 1 < len(candidate) < 35 and candidate[:1].isupper():
                     if candidate.lower() in SWEDISH_CITIES:
-                        raw_city = candidate
+                        if candidate.lower() in ABSTRACT_LOCATIONS:
+                            abstract_fallback = abstract_fallback or candidate
+                        else:
+                            raw_city = candidate
+                            break
+            if not raw_city and abstract_fallback:
+                raw_city = abstract_fallback
+        # Try <p> tag inside anchor (Teamtailor: <p>Dept · City</p> or <p>City</p>)
+        # Also prefer geographic city over abstract
+        if not raw_city:
+            for p_tag in a.find_all("p"):
+                p_text = p_tag.get_text(strip=True)
+                segments = [s.strip() for s in p_text.split("·")]
+                geo_city = None
+                abstract_city = None
+                for seg in reversed(segments):
+                    candidate = seg.split(",")[0].strip()
+                    if candidate and len(candidate) < 35 and candidate[:1].isupper():
+                        if candidate.lower() in SWEDISH_CITIES:
+                            if candidate.lower() in ABSTRACT_LOCATIONS:
+                                abstract_city = abstract_city or candidate
+                            else:
+                                geo_city = candidate
+                                break
+                raw_city = geo_city or abstract_city
+                if raw_city:
+                    break
+        # Try city from URL path as last resort (e.g. Orkla: /job/Fältsäljare-Stockholm-.../...)
+        if not raw_city:
+            try:
+                from urllib.parse import unquote
+                url_words = re.findall(r'[A-ZÅÄÖ][a-zåäö]+', unquote(href.split("?")[0]))
+                for word in reversed(url_words):
+                    if word.lower() in SWEDISH_CITIES and word.lower() not in ABSTRACT_LOCATIONS:
+                        raw_city = word
                         break
+            except Exception:
+                pass
         # Clean city: strip "Plats" prefix (ICA), label prefixes, postal codes
         city = clean_city(re.sub(r'^Plats', '', raw_city or '').strip()) if raw_city else None
 
