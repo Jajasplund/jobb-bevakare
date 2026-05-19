@@ -618,10 +618,90 @@ def write_output(new_by_category):
     print("\n📧 Mejlinnehåll sparat")
 
 
+def debug_company(customer):
+    """Dump raw HTML for the first 3 job anchors — used to diagnose title/city issues."""
+    from urllib.parse import unquote as _unquote
+    name = customer["name"]
+    print(f"\n{'='*60}")
+    print(f"DEBUG: {name}  (playwright={customer.get('use_playwright', False)})")
+    print(f"URL: {customer['url']}")
+    print(f"{'='*60}")
+
+    if customer.get("use_playwright"):
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                try:
+                    page.goto(customer["url"], timeout=30000, wait_until="networkidle")
+                except Exception:
+                    page.wait_for_timeout(8000)
+                if customer.get("wait_for_selector"):
+                    try:
+                        page.wait_for_selector(customer["wait_for_selector"], timeout=10000)
+                    except Exception:
+                        pass
+                else:
+                    page.wait_for_timeout(2000)
+                html = page.content()
+                browser.close()
+        except Exception as e:
+            print(f"Playwright-fel: {e}")
+            return
+    else:
+        try:
+            resp = requests.get(customer["url"], timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            html = resp.text
+        except Exception as e:
+            print(f"Requests-fel: {e}")
+            return
+
+    soup = BeautifulSoup(html, "html.parser")
+    patterns = get_patterns(customer)
+    found = 0
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if href.startswith("/"):
+            base = customer["url"].split("/")[0] + "//" + customer["url"].split("/")[2]
+            href = base + href
+        if not href_matches(href, patterns):
+            continue
+        found += 1
+        if found > 3:
+            break
+        print(f"\n--- Ankare {found}: {href} ---")
+        print(f"Rå HTML:\n{a}\n")
+        print(f"get_link_title()  → {repr(get_link_title(a))}")
+        print(f"get_text()        → {repr(a.get_text(strip=True)[:120])}")
+        print(f"_direct_text(a)   → {repr(_direct_text(a)[:120])}")
+        headings = a.find_all(["h2", "h3", "h4", "strong"])
+        for h in headings:
+            print(f"  <{h.name}> direct='{_direct_text(h)[:80]}'  full='{h.get_text(strip=True)[:80]}'")
+        for p in a.find_all("p"):
+            print(f"  <p> text='{p.get_text(strip=True)[:80]}'")
+
+    if found == 0:
+        print("Inga matchande ankare hittades — kontrollera job_link_pattern")
+
+
 def main():
     force = "--force" in sys.argv
     if force:
         print("FORCE-läge: visar alla nuvarande jobb som nya\n")
+
+    # Debug-läge: python check_jobs.py --debug "Adda"
+    debug_args = [a for a in sys.argv if a.startswith("--debug")]
+    if debug_args:
+        debug_name = sys.argv[sys.argv.index(debug_args[0]) + 1] if len(sys.argv) > sys.argv.index(debug_args[0]) + 1 else ""
+        customers = load_json(CUSTOMERS_FILE)
+        matches = [c for c in customers if debug_name.lower() in c["name"].lower()]
+        if not matches:
+            print(f"Hittade inget bolag som matchar '{debug_name}'")
+            print("Tillgängliga: " + ", ".join(c["name"] for c in customers))
+        for c in matches:
+            debug_company(c)
+        return
 
     customers = load_json(CUSTOMERS_FILE)
     seen_cache = load_json(SEEN_JOBS_FILE)
