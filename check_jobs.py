@@ -316,6 +316,15 @@ def fetch_city_for_job(url):
         soup = BeautifulSoup(resp.text, "html.parser")
     except Exception:
         return None
+    # Teamtailor detail pages: <dt>Platser</dt><dd>Stockholm</dd>
+    for dt in soup.find_all("dt"):
+        label = dt.get_text(strip=True).lower()
+        if label in ("platser", "plats", "location", "locations", "ort"):
+            dd = dt.find_next_sibling("dd")
+            if dd:
+                city = clean_city(dd.get_text(strip=True))
+                if city and 1 < len(city) < 40:
+                    return city
     # JSON-LD structured data (JobPosting schema)
     for script in soup.find_all("script", type="application/ld+json"):
         try:
