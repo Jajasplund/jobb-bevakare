@@ -4,7 +4,7 @@ import os
 import re
 import sys
 import requests
-from bs4 import BeautifulSoup, NavigableString
+from bs4 import BeautifulSoup, NavigableString, Tag
 from datetime import datetime
 
 CUSTOMERS_FILE = "customers.json"
@@ -189,7 +189,7 @@ def get_link_title(anchor):
             return direct
         # 2. First child element — for <h3><span>Title</span><span>Dept</span></h3>
         for child in tag.children:
-            if hasattr(child, 'get_text'):
+            if isinstance(child, Tag):  # Tag only, not NavigableString
                 child_text = _direct_text(child) or child.get_text(strip=True)
                 if child_text and len(child_text) > 5 and child_text.lower() not in TITLE_ARTIFACTS:
                     return child_text
