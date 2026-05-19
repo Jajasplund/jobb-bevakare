@@ -325,6 +325,14 @@ def fetch_city_for_job(url):
                 city = clean_city(dd.get_text(strip=True))
                 if city and 1 < len(city) < 40:
                     return city
+    # Orkla / Taleo: <span class="joblayouttoken-label">Job Posting City:</span><span>Malmö</span>
+    for label_span in soup.find_all("span", class_="joblayouttoken-label"):
+        if "job posting city" in label_span.get_text(strip=True).lower():
+            city_span = label_span.find_next_sibling("span")
+            if city_span:
+                city = clean_city(city_span.get_text(strip=True))
+                if city and 1 < len(city) < 40:
+                    return city
     # JSON-LD structured data (JobPosting schema)
     for script in soup.find_all("script", type="application/ld+json"):
         try:
