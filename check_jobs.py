@@ -38,6 +38,8 @@ SWEDISH_CITIES = {
     "botkyrka", "nynäshamn", "värmdö", "ekerö", "jordbro", "kallhäll",
     "häggvik", "enköping", "mora", "åseda", "helsingborg", "hovsjö",
     "arendal", "kiruna", "mjällby", "sölvesborg",
+    "stenungsund", "eslöv", "vetlanda", "charlottenberg", "åmål", "storlien",
+    "halland", "skåne", "dalarna", "värmland", "blekinge",
     "remote", "distans", "hybridarbete", "hybrid", "hela sverige", "hela landet", "sverige", "sweden",
 }
 
@@ -400,61 +402,106 @@ def parse_jobs_from_html(html, customer, base_url):
         if re.search(r'\d{3}\s?\d{2}', title):
             continue
 
-        # ICA: city in data-ph-at-job-location-text="Kungälv" on the anchor itself
+        # --- City extraction ---
+        # Strategy: collect a geographic city (non-abstract) first; fall back to abstract
+        # (e.g. "Hybridarbete") only if nothing better is found.
+        abstract_fallback = None
+
+        def _accept_city(candidate):
+            """Return (is_geographic, is_abstract) for a candidate city string."""
+            cl = candidate.lower()
+            if cl in ABSTRACT_LOCATIONS:
+                return False, True
+            # Accept any Swedish city OR unknown short string (kept for unknown municipalities)
+            return True, False
+
+        # 1. ICA: city in data-ph-at-job-location-text="Kungälv"
         raw_city = a.get("data-ph-at-job-location-text", "").strip() or None
+        if raw_city:
+            geo, abst = _accept_city(raw_city)
+            if abst:
+                abstract_fallback = raw_city
+                raw_city = None
+
+        # 2. St1 / similar: city in anchor's own title="City ● Category"
         if not raw_city:
-            raw_city = extract_city_from_dom(a)
+            a_title_attr = a.get("title", "").strip()
+            if a_title_attr and "●" in a_title_attr:
+                candidate = a_title_attr.split("●")[0].strip()
+                if candidate and 1 < len(candidate) < 35:
+                    geo, abst = _accept_city(candidate)
+                    if abst:
+                        abstract_fallback = abstract_fallback or candidate
+                    else:
+                        raw_city = candidate
+
+        # 3. DOM extraction (location-class elements in parent)
+        if not raw_city:
+            dom_city = extract_city_from_dom(a)
+            if dom_city:
+                geo, abst = _accept_city(dom_city)
+                if abst:
+                    abstract_fallback = abstract_fallback or dom_city
+                else:
+                    raw_city = dom_city
+
+        # 4. City embedded in title text ("till Stockholm", "i Göteborg", last word)
         if not raw_city:
             title_city = extract_city_from_title(title)
-            if title_city and title_city.lower() in SWEDISH_CITIES:
-                raw_city = title_city
-        # Try Teamtailor "Title · Dept · City1, City2" pattern from full anchor text
-        # Walk segments from right to left; prefer geographic city over abstract (hybridarbete etc.)
+            if title_city:
+                geo, abst = _accept_city(title_city)
+                if abst:
+                    abstract_fallback = abstract_fallback or title_city
+                elif title_city.lower() in SWEDISH_CITIES:
+                    raw_city = title_city
+
+        # 5. Teamtailor "Title · Dept · City" pattern in full anchor text
         if not raw_city and "·" in full_anchor_text:
             dot_parts = [p.strip() for p in full_anchor_text.split("·")]
-            abstract_fallback = None
-            for part in reversed(dot_parts[1:]):   # skip first part (title)
-                candidate = part.split(",")[0].strip()  # first city if multiple
+            for part in reversed(dot_parts[1:]):
+                candidate = part.split(",")[0].strip()
                 if candidate and 1 < len(candidate) < 35 and candidate[:1].isupper():
                     if candidate.lower() in SWEDISH_CITIES:
-                        if candidate.lower() in ABSTRACT_LOCATIONS:
+                        geo, abst = _accept_city(candidate)
+                        if abst:
                             abstract_fallback = abstract_fallback or candidate
                         else:
                             raw_city = candidate
                             break
-            if not raw_city and abstract_fallback:
-                raw_city = abstract_fallback
-        # Try <p> tag inside anchor (Teamtailor: <p>Dept · City</p> or <p>City</p>)
-        # Also prefer geographic city over abstract
+
+        # 6. <p> tag inside anchor (Teamtailor card: <p>Dept · City</p>)
         if not raw_city:
             for p_tag in a.find_all("p"):
                 p_text = p_tag.get_text(strip=True)
-                segments = [s.strip() for s in p_text.split("·")]
-                geo_city = None
-                abstract_city = None
-                for seg in reversed(segments):
+                for seg in reversed([s.strip() for s in p_text.split("·")]):
                     candidate = seg.split(",")[0].strip()
                     if candidate and len(candidate) < 35 and candidate[:1].isupper():
                         if candidate.lower() in SWEDISH_CITIES:
-                            if candidate.lower() in ABSTRACT_LOCATIONS:
-                                abstract_city = abstract_city or candidate
+                            geo, abst = _accept_city(candidate)
+                            if abst:
+                                abstract_fallback = abstract_fallback or candidate
                             else:
-                                geo_city = candidate
+                                raw_city = candidate
                                 break
-                raw_city = geo_city or abstract_city
                 if raw_city:
                     break
-        # Try city from URL path as last resort (e.g. Orkla: /job/Fältsäljare-Stockholm-.../...)
+
+        # 7. URL slug — case-insensitive (Toyota uses lowercase slugs, Orkla uses mixed)
         if not raw_city:
             try:
                 from urllib.parse import unquote
-                url_words = re.findall(r'[A-ZÅÄÖ][a-zåäö]+', unquote(href.split("?")[0]))
+                url_words = re.findall(r'[a-zA-ZåäöÅÄÖ]+', unquote(href.split("?")[0]))
                 for word in reversed(url_words):
                     if word.lower() in SWEDISH_CITIES and word.lower() not in ABSTRACT_LOCATIONS:
-                        raw_city = word
+                        raw_city = word[0].upper() + word[1:]
                         break
             except Exception:
                 pass
+
+        # Fall back to abstract location (e.g. "Hybridarbete") if no geographic city found
+        if not raw_city and abstract_fallback:
+            raw_city = abstract_fallback
+
         # Clean city: strip "Plats" prefix (ICA), label prefixes, postal codes
         city = clean_city(re.sub(r'^Plats', '', raw_city or '').strip()) if raw_city else None
 
@@ -466,6 +513,10 @@ def parse_jobs_from_html(html, customer, base_url):
         if not city and title_has_non_swedish_location(title):
             skipped_abroad += 1
             continue
+
+        # Use customer-level default city as last resort (e.g. Kammarkollegiet → Stockholm)
+        if not city:
+            city = customer.get("default_city", "") or ""
 
         seen_urls.add(href)
         jobs.append({
@@ -684,10 +735,10 @@ def debug_company(customer):
             break
         print(f"\n--- Ankare {found}: {href} ---")
         print(f"Rå HTML:\n{a}\n")
-        print(f"get_link_title()  → {repr(get_link_title(a))}")
-        print(f"get_text()        → {repr(a.get_text(strip=True)[:120])}")
-        print(f"_direct_text(a)   → {repr(_direct_text(a)[:120])}")
-        print(f"data-location     → {repr(a.get('data-ph-at-job-location-text', ''))}")
+        print(f"get_link_title()  = {repr(get_link_title(a))}")
+        print(f"get_text()        = {repr(a.get_text(strip=True)[:120])}")
+        print(f"_direct_text(a)   = {repr(_direct_text(a)[:120])}")
+        print(f"data-location     = {repr(a.get('data-ph-at-job-location-text', ''))}")
         for tag in a.find_all(["span", "div"]):
             t_attr = tag.get("title", "")
             if t_attr:

@@ -111,7 +111,8 @@
     "name": "Kammarkollegiet",
     "category": "KAM-kund",
     "url": "https://www.kammarkollegiet.se/jobba-har/lediga-jobb",
-    "job_link_pattern": "kammarkollegiet.se/jobba-har/lediga-jobb/position"
+    "job_link_pattern": "kammarkollegiet.se/jobba-har/lediga-jobb/position",
+    "default_city": "Stockholm"
   },
   {
     "name": "KellyOCG",
