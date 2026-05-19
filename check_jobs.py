@@ -4,7 +4,7 @@ import os
 import re
 import sys
 import requests
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag, Comment
 from datetime import datetime
 
 CUSTOMERS_FILE = "customers.json"
@@ -167,14 +167,16 @@ def title_has_non_swedish_location(title):
 
 
 def _direct_text(tag):
-    """Return only the direct (non-nested) text of a tag, ignoring child elements."""
-    return "".join(str(c) for c in tag.children if isinstance(c, NavigableString)).strip()
+    """Return only the direct (non-nested) text of a tag, ignoring child elements and HTML comments."""
+    return "".join(str(c) for c in tag.children
+                   if isinstance(c, NavigableString) and not isinstance(c, Comment)).strip()
 
 
 def get_link_title(anchor):
     """Extract job title from a link element, handling multiple site structures.
 
     Priority order:
+    0. title attribute on span/div (Teamtailor: <span title="Clean Job Title">...)
     1. Direct text nodes of heading (avoids sibling dept/company spans)
     2. First child element of heading (Teamtailor: <h3><span>Title</span><span>Dept</span></h3>)
     3. Full heading text with separator (last resort)
@@ -182,6 +184,13 @@ def get_link_title(anchor):
     5. Direct text nodes of anchor (ICA: <a><span aria>anchor</span>Real title text</a>)
     6. Full anchor text
     """
+    # 0. title attribute on span/div — Teamtailor renders clean title here
+    #    e.g. <span class="... hyphens-auto" title="Erfaren Frontendutvecklare till Svea Bank">
+    for tag in anchor.find_all(["span", "div"]):
+        title_attr = tag.get("title", "").strip()
+        if title_attr and 5 < len(title_attr) < 200 and title_attr.lower() not in TITLE_ARTIFACTS:
+            return title_attr
+
     for tag in anchor.find_all(["h2", "h3", "h4", "strong"]):
         # 1. Direct text nodes only — skips nested dept/company spans
         direct = _direct_text(tag)
@@ -391,7 +400,10 @@ def parse_jobs_from_html(html, customer, base_url):
         if re.search(r'\d{3}\s?\d{2}', title):
             continue
 
-        raw_city = extract_city_from_dom(a)
+        # ICA: city in data-ph-at-job-location-text="Kungälv" on the anchor itself
+        raw_city = a.get("data-ph-at-job-location-text", "").strip() or None
+        if not raw_city:
+            raw_city = extract_city_from_dom(a)
         if not raw_city:
             title_city = extract_city_from_title(title)
             if title_city and title_city.lower() in SWEDISH_CITIES:
@@ -675,6 +687,11 @@ def debug_company(customer):
         print(f"get_link_title()  → {repr(get_link_title(a))}")
         print(f"get_text()        → {repr(a.get_text(strip=True)[:120])}")
         print(f"_direct_text(a)   → {repr(_direct_text(a)[:120])}")
+        print(f"data-location     → {repr(a.get('data-ph-at-job-location-text', ''))}")
+        for tag in a.find_all(["span", "div"]):
+            t_attr = tag.get("title", "")
+            if t_attr:
+                print(f"  title-attr on <{tag.name}>: {repr(t_attr[:100])}")
         headings = a.find_all(["h2", "h3", "h4", "strong"])
         for h in headings:
             print(f"  <{h.name}> direct='{_direct_text(h)[:80]}'  full='{h.get_text(strip=True)[:80]}'")
