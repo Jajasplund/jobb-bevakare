@@ -879,43 +879,24 @@ def fetch_all_competitor_jobs(competitors, customers):
         if not html:
             continue
 
-        soup = BeautifulSoup(html, "html.parser")
-        patterns = get_patterns(competitor)
-        base_url = competitor["url"]
-        seen_urls = set()
+        # Reuse parse_jobs_from_html to get title + city extraction for free
+        all_jobs, _ = parse_jobs_from_html(html, competitor, competitor["url"])
+
+        # Fetch city for jobs missing it (same as regular flow)
+        for job in all_jobs:
+            if not job["city"]:
+                fetched = fetch_city_for_job(job["url"])
+                job["city"] = clean_city(fetched) if fetched else ""
+
         matched_count = 0
-
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if href.startswith("/"):
-                base = base_url.split("/")[0] + "//" + base_url.split("/")[2]
-                href = base + href
-            if not href_matches(href, patterns) or href in seen_urls:
-                continue
-
-            raw_title = get_link_title(a).strip()
-            if not raw_title or len(raw_title) <= 3:
-                continue
-            if raw_title.lower() in GENERIC_LINK_TEXTS:
-                continue
-            title = clean_title(raw_title)
-            if not title or len(title) <= 3:
-                continue
-
-            customer = match_customer_for_competitor_job(href, title, customers)
+        for job in all_jobs:
+            customer = match_customer_for_competitor_job(job["url"], job["title"], customers)
             if not customer:
                 continue
-
             cust_name = customer["name"]
-            seen_urls.add(href)
             matched_count += 1
-            result.setdefault(cust_name, {}).setdefault(comp_name, []).append({
-                "id": href,
-                "title": title,
-                "url": href,
-                "city": "",
-                "competitor": comp_name,
-            })
+            job["competitor"] = comp_name
+            result.setdefault(cust_name, {}).setdefault(comp_name, []).append(job)
 
         print(f"  → {comp_name}: {matched_count} kundmatchningar")
 
