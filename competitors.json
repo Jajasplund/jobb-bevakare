@@ -34,7 +34,7 @@
       "novare.se/tech/jobb/"
     ],
     "use_playwright": true,
-    "scroll_count": 15
+    "click_page_buttons": true
   },
   {
     "name": "SJR",

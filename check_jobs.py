@@ -1093,6 +1093,86 @@ def _fetch_intercepted_api_jobs(site):
         return []
 
 
+def _fetch_click_paginated_jobs(site):
+    """Fetch jobs from a page that paginates via JS button clicks.
+
+    Used when a site renders a finite number of pages and exposes them via
+    clickable page-number buttons (e.g. Novare: <button data-page-no="2">).
+
+    The function:
+      1. Loads the page in Playwright and reads data-max-num-pages.
+      2. Parses job links from page 1.
+      3. Clicks each subsequent page button and parses again.
+      4. Returns the union of all unique job links.
+
+    Site config fields:
+      url               – listing page URL
+      job_link_pattern / job_link_patterns  – used for anchor matching
+      page_button_attr  – data attribute on buttons that holds the page number
+                          (default "data-page-no")
+      max_pages_attr    – data attribute that holds the total page count
+                          (default "data-max-num-pages")
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+
+        page_button_attr = site.get("page_button_attr", "data-page-no")
+        max_pages_attr   = site.get("max_pages_attr",   "data-max-num-pages")
+        url              = site["url"]
+
+        all_jobs = []
+        seen_ids: set = set()
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            pw_page = browser.new_page(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                           "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            )
+            try:
+                pw_page.goto(url, timeout=30000, wait_until="networkidle")
+            except Exception:
+                pw_page.wait_for_timeout(5000)
+            pw_page.wait_for_timeout(2000)
+
+            # Determine total pages from data attribute
+            html = pw_page.content()
+            soup_p1 = BeautifulSoup(html, "html.parser")
+            max_el = soup_p1.find(attrs={max_pages_attr: True})
+            max_pages = int(max_el[max_pages_attr]) if max_el else 1
+
+            # Parse page 1
+            page_jobs, _ = parse_jobs_from_html(html, site, url)
+            for j in page_jobs:
+                if j["id"] not in seen_ids:
+                    seen_ids.add(j["id"])
+                    all_jobs.append(j)
+
+            # Click through pages 2..N
+            for pg in range(2, max_pages + 1):
+                try:
+                    btn = pw_page.locator(f"button[{page_button_attr}='{pg}']").first
+                    btn.click()
+                    pw_page.wait_for_timeout(2000)
+                    html = pw_page.content()
+                    page_jobs, _ = parse_jobs_from_html(html, site, url)
+                    for j in page_jobs:
+                        if j["id"] not in seen_ids:
+                            seen_ids.add(j["id"])
+                            all_jobs.append(j)
+                except Exception as e:
+                    print(f"  {site.get('name','')} sida {pg}: {e}")
+                    break
+
+            browser.close()
+
+        return all_jobs
+
+    except Exception as e:
+        print(f"  Click-paginator-fel ({site.get('name', '')}): {e}")
+        return []
+
+
 def _fetch_wp_rest_jobs(site):
     """Fetch jobs from a WordPress REST API endpoint (/wp-json/wp/v2/jobs).
 
@@ -1389,6 +1469,8 @@ def fetch_all_competitor_jobs(competitors, customers):
             all_jobs = _fetch_jobs_from_sitemap(competitor)
         elif competitor.get("api_wp_rest_url"):
             all_jobs = _fetch_wp_rest_jobs(competitor)
+        elif competitor.get("click_page_buttons"):
+            all_jobs = _fetch_click_paginated_jobs(competitor)
         elif competitor.get("api_intercept_url") and competitor.get("api_type") == "adecco_post":
             all_jobs = _fetch_adecco_jobs_via_api(competitor)
         elif competitor.get("api_intercept_url"):

@@ -7,8 +7,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from check_jobs import (
     load_json, _fetch_jobs_from_sitemap, _fetch_intercepted_api_jobs,
     _fetch_adecco_jobs_via_api, _fetch_html_for_site, _fetch_wp_rest_jobs,
-    parse_jobs_from_html, clean_city, fetch_city_for_job,
-    match_customer_for_competitor_job
+    _fetch_click_paginated_jobs, parse_jobs_from_html, clean_city,
+    fetch_city_for_job, match_customer_for_competitor_job
 )
 
 NAMES = sys.argv[1:] if len(sys.argv) > 1 else ["Poolia", "Professional Nord"]
@@ -29,6 +29,8 @@ for comp in competitors:
             jobs = _fetch_jobs_from_sitemap(comp)
         elif comp.get("api_wp_rest_url"):
             jobs = _fetch_wp_rest_jobs(comp)
+        elif comp.get("click_page_buttons"):
+            jobs = _fetch_click_paginated_jobs(comp)
         elif comp.get("api_intercept_url") and comp.get("api_type") == "adecco_post":
             jobs = _fetch_adecco_jobs_via_api(comp)
         elif comp.get("api_intercept_url"):
