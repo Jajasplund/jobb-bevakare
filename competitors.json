@@ -3,31 +3,34 @@
     "name": "Amendo",
     "url": "https://jobb.amendo.se/jobs",
     "job_link_pattern": "jobb.amendo.se/jobs/",
-    "use_playwright": true
+    "use_playwright": true,
+    "scroll_count": 15
   },
   {
     "name": "Ants",
     "url": "https://jobb.ants.se/jobs",
     "job_link_pattern": "jobb.ants.se/jobs/",
-    "use_playwright": true
+    "use_playwright": true,
+    "scroll_count": 15
   },
   {
     "name": "Nexer Recruit",
     "url": "https://lediga-jobb.nexerrecruit.com/jobs",
     "job_link_pattern": "nexerrecruit.com/jobs/",
-    "use_playwright": true
+    "use_playwright": true,
+    "scroll_count": 15
   },
   {
     "name": "Wise",
-    "url": "https://www.wise.se/lediga-jobb/",
-    "job_link_pattern": "wise.se/jobb/",
-    "use_playwright": true
+    "sitemap_url": "https://www.wise.se/sitemap.xml",
+    "job_link_pattern": "wise.se/jobb/"
   },
   {
     "name": "Jurek",
     "url": "https://jobb.jurek.se/jobs",
     "job_link_pattern": "jobb.jurek.se/jobs/",
-    "use_playwright": true
+    "use_playwright": true,
+    "scroll_count": 15
   },
   {
     "name": "Novare",
@@ -38,63 +41,71 @@
       "novare.se/bemanning/jobb/",
       "novare.se/tech/jobb/"
     ],
-    "use_playwright": true
+    "use_playwright": true,
+    "scroll_count": 10
   },
   {
     "name": "SJR",
     "url": "https://sjr.se/lediga-jobb-samling/",
     "job_link_pattern": "sjr.se/jobb/",
-    "use_playwright": true
+    "use_playwright": true,
+    "scroll_count": 10
   },
   {
     "name": "Randstad",
     "url": "https://www.randstad.se/jobb/",
     "job_link_pattern": "randstad.se/jobb/",
-    "use_playwright": true
+    "use_playwright": true,
+    "scroll_count": 5
   },
   {
     "name": "Manpower",
     "url": "https://www.manpower.se/lediga-jobb",
     "job_link_pattern": "manpower.se/sv/jobb/",
-    "use_playwright": true
+    "use_playwright": true,
+    "scroll_count": 0,
+    "max_pages": 10
   },
   {
     "name": "Academic Work",
-    "url": "https://www.academicwork.se/lediga-jobb",
-    "job_link_pattern": "academicwork.se/lediga-jobb/j/",
-    "use_playwright": true
+    "sitemap_url": "https://www.academicwork.se/sitemap.xml",
+    "job_link_pattern": "academicwork.se/lediga-jobb/j/"
   },
   {
     "name": "Poolia",
     "url": "https://poolia.se/lediga-jobb/",
     "job_link_pattern": "poolia.se/jobb/",
     "use_playwright": true,
-    "wait_for_selector": "a[href*='/jobb/']"
+    "wait_for_selector": "a[href*='/jobb/']",
+    "scroll_count": 5
   },
   {
     "name": "Experis",
     "url": "https://www.experis.se/sv/sok?page=1",
     "job_link_pattern": "experis.se/sv/jobb/",
     "use_playwright": true,
-    "wait_for_selector": "a[href*='/sv/jobb/']"
+    "wait_for_selector": "a[href*='/sv/jobb/']",
+    "scroll_count": 0,
+    "max_pages": 5
   },
   {
     "name": "Bravura",
-    "url": "https://ledigajobb.bravura.se/jobs",
-    "job_link_pattern": "ledigajobb.bravura.se/jobs/",
-    "use_playwright": true
+    "sitemap_url": "https://ledigajobb.bravura.se/sitemap.xml",
+    "job_link_pattern": "ledigajobb.bravura.se/jobs/"
   },
   {
     "name": "Professional Nord",
     "url": "https://pn.se/?post_type=jobs",
     "job_link_pattern": "pn.se/jobs/",
-    "use_playwright": true
+    "use_playwright": true,
+    "scroll_count": 5
   },
   {
     "name": "Adecco",
     "url": "https://www.adecco.com/sv-se/lediga-jobb/",
     "api_intercept_url": "adecco.com/api/data/jobs/summarized",
     "job_link_pattern": "adecco.com/sv-se/lediga-jobb/",
-    "use_playwright": true
+    "use_playwright": true,
+    "scroll_count": 15
   }
 ]

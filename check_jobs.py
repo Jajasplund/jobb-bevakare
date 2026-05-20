@@ -902,71 +902,177 @@ def match_customer_for_competitor_job(href, title, customers):
     return None
 
 
-def _fetch_adecco_jobs_via_api(site):
-    """Fetch Adecco jobs by intercepting their internal JSON API via Playwright.
+def _fetch_jobs_from_sitemap(site):
+    """Fetch all jobs by parsing the site's XML sitemap.
 
+    Used when a competitor publishes all job URLs in their sitemap.xml.
+    Titles are extracted from URL slugs via title_from_url_slug().
     Returns a list of job dicts [{id, title, url, city, blue_collar}].
-    The API endpoint returns all Swedish jobs with jobTitle + cityName.
+    """
+    sitemap_url = site["sitemap_url"]
+    patterns = get_patterns(site)
+    try:
+        resp = requests.get(sitemap_url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"  Sitemap-fel ({site.get('name', sitemap_url)}): {e}")
+        return []
+
+    # Extract <loc> values — works without lxml
+    loc_values = re.findall(r'<loc>\s*(https?://[^<\s]+)\s*</loc>', resp.text)
+    jobs = []
+    seen: set = set()
+    for url in loc_values:
+        if not href_matches(url, patterns):
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        title = title_from_url_slug(url)
+        if not title:
+            continue
+        jobs.append({
+            "id":          url,
+            "title":       clean_title(title),
+            "url":         url,
+            "city":        "",
+            "blue_collar": is_blue_collar(title),
+        })
+    return jobs
+
+
+def _fetch_adecco_jobs_via_api(site):
+    """Fetch Adecco jobs by intercepting their internal JSON API via Playwright,
+    then paginating through all pages via direct POST requests.
+
+    Strategy:
+    1. Open the page in Playwright once to capture the POST body + cookies.
+    2. Replay the POST with range=0, 10, 20, … until no more jobs are returned.
+    Returns a list of job dicts [{id, title, url, city, blue_collar}].
     """
     try:
         from playwright.sync_api import sync_playwright
         import urllib.parse as _up
-        collected = []
 
+        captured: dict = {}
+
+        # --- Phase 1: capture initial POST body and cookies ---
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                           "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             )
 
-            def handle_response(response):
+            def capture_request(request):
                 intercept = site.get("api_intercept_url", "")
-                if intercept and intercept in response.url:
+                if intercept and intercept in request.url and not captured.get("body"):
                     try:
-                        data = response.json()
-                        for job in data.get("jobs", []):
-                            title = job.get("jobTitle", "").strip()
-                            city  = clean_city(job.get("cityName", "").strip())
-                            jid   = job.get("jobId", "")
-                            apply = job.get("applyUri", "")
-                            if not title:
-                                continue
-                            # Build a stable URL for deduplication / seen-cache
-                            url_str = apply if apply else (site["url"].rstrip("/") + "/" + _up.quote(jid))
-                            collected.append({
-                                "id":          url_str,
-                                "title":       clean_title(title),
-                                "url":         url_str,
-                                "city":        city or "",
-                                "blue_collar": is_blue_collar(title),
-                            })
+                        captured["body"] = json.loads(request.post_data or "{}")
                     except Exception:
                         pass
 
-            page.on("response", handle_response)
+            page.on("request", capture_request)
             try:
                 page.goto(site["url"], timeout=30000, wait_until="networkidle")
             except Exception:
                 page.wait_for_timeout(8000)
-            page.wait_for_timeout(3000)
-            # Scroll to trigger lazy-loaded pages (each scroll fires another API call)
-            for _ in range(3):
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                page.wait_for_timeout(2000)
+            page.wait_for_timeout(4000)
+            captured["cookies"] = {c["name"]: c["value"] for c in page.context.cookies()}
             browser.close()
 
+        if not captured.get("body"):
+            print("  Adecco: kunde inte fånga API-anrop")
+            return []
+
+        # --- Phase 2: paginate via direct POST requests ---
+        base_body = captured["body"]
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Origin": "https://www.adecco.com",
+            "Referer": site["url"],
+        })
+        for c_name, c_val in captured["cookies"].items():
+            session.cookies.set(c_name, c_val, domain="www.adecco.com")
+
+        api_url   = f"https://www.adecco.com/api/data/jobs/summarized"
+        collected = []
+        seen_ids: set = set()
+        page_size = 10  # Adecco returns 10 per request
+
+        import time as _time
+        for start in range(0, 500, page_size):  # cap at 500 to avoid runaway
+            body = dict(base_body)
+            body["range"] = start
+            if start > 0:
+                _time.sleep(0.5)  # polite pacing to avoid rate-limiting
+            try:
+                resp = session.post(api_url, json=body, timeout=15)
+                if not resp.content:
+                    break  # Empty response — end of results or session expired
+                data = resp.json()
+                jobs = data.get("jobs", [])
+                if not jobs:
+                    break  # No more results
+                for job in jobs:
+                    title = job.get("jobTitle", "").strip()
+                    city  = clean_city(job.get("cityName", "").strip())
+                    jid   = job.get("jobId", "")
+                    apply = job.get("applyUri", "")
+                    if not title:
+                        continue
+                    url_str = apply if apply else (
+                        site["url"].rstrip("/") + "/" + _up.quote(str(jid))
+                    )
+                    if url_str in seen_ids:
+                        continue
+                    seen_ids.add(url_str)
+                    collected.append({
+                        "id":          url_str,
+                        "title":       clean_title(title),
+                        "url":         url_str,
+                        "city":        city or "",
+                        "blue_collar": is_blue_collar(title),
+                    })
+                # Check if we've reached the end
+                total = data.get("pagination", {}).get("total", 0)
+                if start + page_size >= total:
+                    break
+            except Exception as e:
+                print(f"  Adecco API sida {start}: {e}")
+                break
+
         return collected
+
     except Exception as e:
         print(f"  Adecco API-fel: {e}")
         return []
 
 
-def _fetch_html_for_site(site):
-    """Fetch rendered HTML for a site dict (has 'url' and optional 'use_playwright')."""
+def _fetch_html_for_site(site, scroll_count=0, page_num=1):
+    """Fetch rendered HTML for a site dict (has 'url' and optional 'use_playwright').
+
+    scroll_count: number of scroll-to-bottom cycles to perform after initial load.
+    page_num: page number for URL-based pagination (default 1 = first page).
+      If page_num > 1 the URL is modified:
+        - existing "page=N" param is incremented, OR
+        - "?page=N" / "&page=N" is appended
+    """
     # Sites with a JSON API interception use a dedicated fetcher
     if site.get("api_intercept_url"):
         return None  # Signal to caller to use _fetch_adecco_jobs_via_api instead
     url = site["url"]
+    if page_num > 1:
+        if "page=" in url:
+            url = re.sub(r'page=\d+', f'page={page_num}', url)
+        elif "?" in url:
+            url = url + f"&page={page_num}"
+        else:
+            url = url + f"?page={page_num}"
     if site.get("use_playwright"):
         try:
             from playwright.sync_api import sync_playwright
@@ -979,7 +1085,28 @@ def _fetch_html_for_site(site):
                     page.goto(url, timeout=30000, wait_until="networkidle")
                 except Exception:
                     page.wait_for_timeout(8000)
-                page.wait_for_timeout(2000)
+                wait_selector = site.get("wait_for_selector")
+                if wait_selector:
+                    try:
+                        page.wait_for_selector(wait_selector, timeout=10000)
+                    except Exception:
+                        pass
+                    # Extra grace period so the full initial batch renders
+                    page.wait_for_timeout(1500)
+                else:
+                    page.wait_for_timeout(2000)
+                # Scroll to trigger infinite-scroll / lazy-load pagination
+                for i in range(scroll_count):
+                    try:
+                        prev_height = page.evaluate("document.body.scrollHeight")
+                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        page.wait_for_timeout(1500)
+                        new_height = page.evaluate("document.body.scrollHeight")
+                        # Stop early if the page stopped growing (all jobs loaded)
+                        if new_height == prev_height and i >= 2:
+                            break
+                    except Exception:
+                        break
                 try:
                     html = page.content()
                 except Exception:
@@ -1016,16 +1143,30 @@ def fetch_all_competitor_jobs(competitors, customers):
         comp_name = competitor["name"]
         print(f"\nScannar {comp_name}...")
 
-        # Sites with api_intercept_url use a direct JSON API path
-        if competitor.get("api_intercept_url"):
+        # Route to correct fetcher based on site config
+        if competitor.get("sitemap_url"):
+            all_jobs = _fetch_jobs_from_sitemap(competitor)
+        elif competitor.get("api_intercept_url"):
             all_jobs = _fetch_adecco_jobs_via_api(competitor)
         else:
-            html = _fetch_html_for_site(competitor)
-            if not html:
-                continue
+            # Use a high scroll count to load as many jobs as possible via infinite scroll.
+            # Default 10 scrolls (~100–150 extra jobs on Teamtailor); override per site.
+            scroll_count = competitor.get("scroll_count", 10)
+            max_pages  = competitor.get("max_pages", 1)
 
-            # Reuse parse_jobs_from_html to get title + city extraction for free
-            all_jobs, _ = parse_jobs_from_html(html, competitor, competitor["url"])
+            all_jobs = []
+            seen_job_ids: set = set()
+
+            for page_num in range(1, max_pages + 1):
+                html = _fetch_html_for_site(competitor, scroll_count=scroll_count, page_num=page_num)
+                if not html:
+                    break
+                page_jobs, _ = parse_jobs_from_html(html, competitor, competitor["url"])
+                new_jobs = [j for j in page_jobs if j["id"] not in seen_job_ids]
+                if not new_jobs and page_num > 1:
+                    break  # Page returned nothing new — we've reached the end
+                all_jobs.extend(new_jobs)
+                seen_job_ids.update(j["id"] for j in new_jobs)
 
             # Fetch city for jobs missing it (same as regular flow)
             for job in all_jobs:
