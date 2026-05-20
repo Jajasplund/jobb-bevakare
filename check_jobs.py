@@ -902,8 +902,70 @@ def match_customer_for_competitor_job(href, title, customers):
     return None
 
 
+def _fetch_adecco_jobs_via_api(site):
+    """Fetch Adecco jobs by intercepting their internal JSON API via Playwright.
+
+    Returns a list of job dicts [{id, title, url, city, blue_collar}].
+    The API endpoint returns all Swedish jobs with jobTitle + cityName.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+        import urllib.parse as _up
+        collected = []
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            )
+
+            def handle_response(response):
+                intercept = site.get("api_intercept_url", "")
+                if intercept and intercept in response.url:
+                    try:
+                        data = response.json()
+                        for job in data.get("jobs", []):
+                            title = job.get("jobTitle", "").strip()
+                            city  = clean_city(job.get("cityName", "").strip())
+                            jid   = job.get("jobId", "")
+                            apply = job.get("applyUri", "")
+                            if not title:
+                                continue
+                            # Build a stable URL for deduplication / seen-cache
+                            url_str = apply if apply else (site["url"].rstrip("/") + "/" + _up.quote(jid))
+                            collected.append({
+                                "id":          url_str,
+                                "title":       clean_title(title),
+                                "url":         url_str,
+                                "city":        city or "",
+                                "blue_collar": is_blue_collar(title),
+                            })
+                    except Exception:
+                        pass
+
+            page.on("response", handle_response)
+            try:
+                page.goto(site["url"], timeout=30000, wait_until="networkidle")
+            except Exception:
+                page.wait_for_timeout(8000)
+            page.wait_for_timeout(3000)
+            # Scroll to trigger lazy-loaded pages (each scroll fires another API call)
+            for _ in range(3):
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(2000)
+            browser.close()
+
+        return collected
+    except Exception as e:
+        print(f"  Adecco API-fel: {e}")
+        return []
+
+
 def _fetch_html_for_site(site):
     """Fetch rendered HTML for a site dict (has 'url' and optional 'use_playwright')."""
+    # Sites with a JSON API interception use a dedicated fetcher
+    if site.get("api_intercept_url"):
+        return None  # Signal to caller to use _fetch_adecco_jobs_via_api instead
     url = site["url"]
     if site.get("use_playwright"):
         try:
@@ -954,18 +1016,22 @@ def fetch_all_competitor_jobs(competitors, customers):
         comp_name = competitor["name"]
         print(f"\nScannar {comp_name}...")
 
-        html = _fetch_html_for_site(competitor)
-        if not html:
-            continue
+        # Sites with api_intercept_url use a direct JSON API path
+        if competitor.get("api_intercept_url"):
+            all_jobs = _fetch_adecco_jobs_via_api(competitor)
+        else:
+            html = _fetch_html_for_site(competitor)
+            if not html:
+                continue
 
-        # Reuse parse_jobs_from_html to get title + city extraction for free
-        all_jobs, _ = parse_jobs_from_html(html, competitor, competitor["url"])
+            # Reuse parse_jobs_from_html to get title + city extraction for free
+            all_jobs, _ = parse_jobs_from_html(html, competitor, competitor["url"])
 
-        # Fetch city for jobs missing it (same as regular flow)
-        for job in all_jobs:
-            if not job["city"]:
-                fetched = fetch_city_for_job(job["url"])
-                job["city"] = clean_city(fetched) if fetched else ""
+            # Fetch city for jobs missing it (same as regular flow)
+            for job in all_jobs:
+                if not job["city"]:
+                    fetched = fetch_city_for_job(job["url"])
+                    job["city"] = clean_city(fetched) if fetched else ""
 
         matched_count = 0
         for job in all_jobs:

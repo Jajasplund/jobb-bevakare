@@ -77,5 +77,24 @@
     "job_link_pattern": "experis.se/sv/jobb/",
     "use_playwright": true,
     "wait_for_selector": "a[href*='/sv/jobb/']"
+  },
+  {
+    "name": "Bravura",
+    "url": "https://ledigajobb.bravura.se/jobs",
+    "job_link_pattern": "ledigajobb.bravura.se/jobs/",
+    "use_playwright": true
+  },
+  {
+    "name": "Professional Nord",
+    "url": "https://pn.se/?post_type=jobs",
+    "job_link_pattern": "pn.se/jobs/",
+    "use_playwright": true
+  },
+  {
+    "name": "Adecco",
+    "url": "https://www.adecco.com/sv-se/lediga-jobb/",
+    "api_intercept_url": "adecco.com/api/data/jobs/summarized",
+    "job_link_pattern": "adecco.com/sv-se/lediga-jobb/",
+    "use_playwright": true
   }
 ]
