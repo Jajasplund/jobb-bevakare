@@ -1,24 +1,18 @@
 [
   {
     "name": "Amendo",
-    "url": "https://jobb.amendo.se/jobs",
-    "job_link_pattern": "jobb.amendo.se/jobs/",
-    "use_playwright": true,
-    "scroll_count": 15
+    "sitemap_url": "https://jobb.amendo.se/sitemap.xml",
+    "job_link_pattern": "jobb.amendo.se/jobs/"
   },
   {
     "name": "Ants",
-    "url": "https://jobb.ants.se/jobs",
-    "job_link_pattern": "jobb.ants.se/jobs/",
-    "use_playwright": true,
-    "scroll_count": 15
+    "sitemap_url": "https://jobb.ants.se/sitemap.xml",
+    "job_link_pattern": "jobb.ants.se/jobs/"
   },
   {
     "name": "Nexer Recruit",
-    "url": "https://lediga-jobb.nexerrecruit.com/jobs",
-    "job_link_pattern": "nexerrecruit.com/jobs/",
-    "use_playwright": true,
-    "scroll_count": 15
+    "sitemap_url": "https://lediga-jobb.nexerrecruit.com/sitemap.xml",
+    "job_link_pattern": "nexerrecruit.com/jobs/"
   },
   {
     "name": "Wise",
@@ -27,10 +21,8 @@
   },
   {
     "name": "Jurek",
-    "url": "https://jobb.jurek.se/jobs",
-    "job_link_pattern": "jobb.jurek.se/jobs/",
-    "use_playwright": true,
-    "scroll_count": 15
+    "sitemap_url": "https://jobb.jurek.se/sitemap.xml",
+    "job_link_pattern": "jobb.jurek.se/jobs/"
   },
   {
     "name": "Novare",
@@ -42,14 +34,15 @@
       "novare.se/tech/jobb/"
     ],
     "use_playwright": true,
-    "scroll_count": 10
+    "scroll_count": 15
   },
   {
     "name": "SJR",
     "url": "https://sjr.se/lediga-jobb-samling/",
     "job_link_pattern": "sjr.se/jobb/",
-    "use_playwright": true,
-    "scroll_count": 10
+    "page_param": "paged",
+    "max_pages": 6,
+    "scroll_count": 0
   },
   {
     "name": "Randstad",
@@ -74,10 +67,13 @@
   {
     "name": "Poolia",
     "url": "https://poolia.se/lediga-jobb/",
-    "job_link_pattern": "poolia.se/jobb/",
-    "use_playwright": true,
-    "wait_for_selector": "a[href*='/jobb/']",
-    "scroll_count": 5
+    "api_intercept_url": "poolia.se/wp-json/custom/v1/poolia/all_jobs",
+    "api_type": "paginated_get",
+    "api_jobs_key": "jobs",
+    "api_title_key": "title",
+    "api_url_key": "applyURL",
+    "api_city_key": "municipality",
+    "use_playwright": true
   },
   {
     "name": "Experis",
@@ -95,17 +91,16 @@
   },
   {
     "name": "Professional Nord",
-    "url": "https://pn.se/?post_type=jobs",
-    "job_link_pattern": "pn.se/jobs/",
-    "use_playwright": true,
-    "scroll_count": 5
+    "api_wp_rest_url": "https://pn.se/wp-json/wp/v2/jobs",
+    "api_per_page": 18,
+    "job_link_pattern": "pn.se/jobs/"
   },
   {
     "name": "Adecco",
     "url": "https://www.adecco.com/sv-se/lediga-jobb/",
     "api_intercept_url": "adecco.com/api/data/jobs/summarized",
+    "api_type": "adecco_post",
     "job_link_pattern": "adecco.com/sv-se/lediga-jobb/",
-    "use_playwright": true,
-    "scroll_count": 15
+    "use_playwright": true
   }
 ]

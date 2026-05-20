@@ -941,6 +941,245 @@ def _fetch_jobs_from_sitemap(site):
     return jobs
 
 
+def _fetch_intercepted_api_jobs(site):
+    """Generic JSON API interceptor via Playwright, with optional GET pagination.
+
+    Used for sites whose job data is returned in JSON responses intercepted via
+    the browser's network layer.  Supports two modes:
+
+    One-shot (default):
+      Intercepts the first matching response and returns all jobs from it.
+
+    Paginated GET (api_type == "paginated_get"):
+      Intercepts the first response to learn the URL structure + grab cookies,
+      then replays GET requests for subsequent pages until has_next_page=False
+      or no jobs are returned.  Page param is incremented via "page=N" in the URL.
+
+    Site config fields:
+      api_intercept_url  – substring to match in response URL
+      api_jobs_key       – key in JSON body containing the jobs list (default "jobs")
+      api_title_key      – key within each job dict for the title (default "title")
+      api_url_key        – key within each job dict for the job URL (default "url")
+      api_city_key       – key within each job dict for city (default "municipality")
+      api_type           – "paginated_get" enables multi-page GET pagination
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+        import time as _time
+
+        intercept = site["api_intercept_url"]
+        jobs_key  = site.get("api_jobs_key",  "jobs")
+        title_key = site.get("api_title_key", "title")
+        url_key   = site.get("api_url_key",   "url")
+        city_key  = site.get("api_city_key",  "municipality")
+        paginated = site.get("api_type") == "paginated_get"
+
+        # captured[0]: first intercepted raw URL (for pagination base)
+        # captured[1]: cookies dict
+        captured_url: list  = []
+        captured_data: list = []
+        cookies_dict: dict  = {}
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            pw_page = browser.new_page(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                           "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            )
+
+            def handle_response(response):
+                if intercept in response.url and response.status == 200:
+                    if not captured_url:
+                        captured_url.append(response.url)
+                    if not paginated:  # one-shot: collect all pages that fire
+                        try:
+                            data = response.json()
+                            raw_jobs = data if isinstance(data, list) else data.get(jobs_key, [])
+                            if raw_jobs and isinstance(raw_jobs[0], list):
+                                raw_jobs = [j for sub in raw_jobs for j in sub]
+                            captured_data.extend(raw_jobs)
+                        except Exception:
+                            pass
+
+            pw_page.on("response", handle_response)
+            try:
+                pw_page.goto(site["url"], timeout=30000, wait_until="networkidle")
+            except Exception:
+                pw_page.wait_for_timeout(8000)
+            pw_page.wait_for_timeout(4000)
+            if paginated:
+                cookies_dict = {c["name"]: c["value"] for c in pw_page.context.cookies()}
+            browser.close()
+
+        # --- Paginated GET mode ---
+        if paginated:
+            if not captured_url:
+                print(f"  {site.get('name', '')}: API-anrop ej fångat")
+                return []
+
+            base_url = captured_url[0]
+            session = requests.Session()
+            ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            session.headers.update({"User-Agent": ua, "Accept": "application/json",
+                                    "Referer": site["url"]})
+            for c_name, c_val in cookies_dict.items():
+                from urllib.parse import urlparse
+                domain = urlparse(site["url"]).netloc
+                session.cookies.set(c_name, c_val, domain=domain)
+
+            page_num = 1
+            while True:
+                # Replace or append page=N in URL
+                page_url = re.sub(r'\bpage=\d+', f'page={page_num}', base_url)
+                if page_url == base_url and page_num > 1:
+                    # No page param in URL — append it
+                    sep = "&" if "?" in page_url else "?"
+                    page_url = page_url + f"{sep}page={page_num}"
+                if page_num > 1:
+                    _time.sleep(0.3)
+                try:
+                    resp = session.get(page_url, timeout=15)
+                    if not resp.content:
+                        break
+                    data = resp.json()
+                    raw_jobs = data if isinstance(data, list) else data.get(jobs_key, [])
+                    if raw_jobs and isinstance(raw_jobs[0], list):
+                        raw_jobs = [j for sub in raw_jobs for j in sub]
+                    if not raw_jobs:
+                        break
+                    captured_data.extend(raw_jobs)
+                    # Stop if last page
+                    if data.get("is_last_page") or not data.get("has_next_page"):
+                        break
+                    page_num += 1
+                    if page_num > 20:  # safety cap
+                        break
+                except Exception as e:
+                    print(f"  {site.get('name', '')} API sida {page_num}: {e}")
+                    break
+
+        # --- Build job dicts ---
+        jobs = []
+        seen: set = set()
+        for job in captured_data:
+            if not isinstance(job, dict):
+                continue
+            title = str(job.get(title_key, "")).strip()
+            url_str = str(job.get(url_key, "")).strip()
+            if not title:
+                continue
+            job_id = url_str or title
+            if job_id in seen:
+                continue
+            seen.add(job_id)
+            # City: try configured key, then fallback keys
+            raw_city = (job.get(city_key) or job.get("city") or
+                        job.get("location") or job.get("municipality") or "")
+            # Some APIs return city as a list (e.g. Poolia municipality: ["Stockholm"])
+            if isinstance(raw_city, list):
+                raw_city = raw_city[0] if raw_city else ""
+            jobs.append({
+                "id":          job_id,
+                "title":       clean_title(title),
+                "url":         url_str,
+                "city":        clean_city(str(raw_city).strip()),
+                "blue_collar": is_blue_collar(title),
+            })
+        return jobs
+
+    except Exception as e:
+        print(f"  API-interceptor-fel ({site.get('name', '')}): {e}")
+        return []
+
+
+def _fetch_wp_rest_jobs(site):
+    """Fetch jobs from a WordPress REST API endpoint (/wp-json/wp/v2/jobs).
+
+    Makes plain GET requests (no Playwright needed — these endpoints are public).
+    Paginates via X-WP-TotalPages header.
+
+    Site config fields:
+      api_wp_rest_url  – full URL to the WP REST endpoint
+      api_per_page     – items per page (default 18)
+      job_link_pattern – used for customer matching (unchanged)
+
+    Title is taken from item["title"]["rendered"].
+    URL is taken from item["link"].
+    City is taken from item["acf"]["city"] if present.
+    """
+    import time as _time
+    endpoint = site["api_wp_rest_url"]
+    per_page = site.get("api_per_page", 18)
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+    jobs = []
+    seen: set = set()
+    page_num = 1
+    total_pages = None
+
+    while True:
+        url = f"{endpoint}?per_page={per_page}&page={page_num}"
+        try:
+            resp = requests.get(url, timeout=15, headers=headers)
+            if resp.status_code == 400:
+                break  # WP returns 400 when page exceeds total
+            resp.raise_for_status()
+        except Exception as e:
+            print(f"  {site.get('name', '')} WP REST sida {page_num}: {e}")
+            break
+
+        if total_pages is None:
+            try:
+                total_pages = int(resp.headers.get("X-WP-TotalPages", 1))
+            except Exception:
+                total_pages = 1
+
+        try:
+            items = resp.json()
+        except Exception as e:
+            print(f"  {site.get('name', '')} WP REST JSON-fel: {e}")
+            break
+
+        if not items:
+            break
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            # Title: nested in {"rendered": "..."}
+            title_obj = item.get("title", {})
+            title = (title_obj.get("rendered", "") if isinstance(title_obj, dict)
+                     else str(title_obj)).strip()
+            if not title:
+                continue
+            link = item.get("link", "").strip()
+            if not link:
+                continue
+            if link in seen:
+                continue
+            seen.add(link)
+
+            # City from ACF field
+            acf = item.get("acf", {})
+            city = clean_city(str(acf.get("city", "") or "").strip()) if isinstance(acf, dict) else ""
+
+            jobs.append({
+                "id":          link,
+                "title":       clean_title(title),
+                "url":         link,
+                "city":        city,
+                "blue_collar": is_blue_collar(title),
+            })
+
+        if page_num >= (total_pages or 1):
+            break
+        page_num += 1
+        _time.sleep(0.2)  # polite pacing
+
+    return jobs
+
+
 def _fetch_adecco_jobs_via_api(site):
     """Fetch Adecco jobs by intercepting their internal JSON API via Playwright,
     then paginating through all pages via direct POST requests.
@@ -1067,12 +1306,14 @@ def _fetch_html_for_site(site, scroll_count=0, page_num=1):
         return None  # Signal to caller to use _fetch_adecco_jobs_via_api instead
     url = site["url"]
     if page_num > 1:
-        if "page=" in url:
-            url = re.sub(r'page=\d+', f'page={page_num}', url)
+        page_param = site.get("page_param", "page")  # e.g. "paged" for WordPress
+        param_pattern = re.compile(rf'\b{re.escape(page_param)}=\d+')
+        if param_pattern.search(url):
+            url = param_pattern.sub(f'{page_param}={page_num}', url)
         elif "?" in url:
-            url = url + f"&page={page_num}"
+            url = url + f"&{page_param}={page_num}"
         else:
-            url = url + f"?page={page_num}"
+            url = url + f"?{page_param}={page_num}"
     if site.get("use_playwright"):
         try:
             from playwright.sync_api import sync_playwright
@@ -1146,8 +1387,12 @@ def fetch_all_competitor_jobs(competitors, customers):
         # Route to correct fetcher based on site config
         if competitor.get("sitemap_url"):
             all_jobs = _fetch_jobs_from_sitemap(competitor)
-        elif competitor.get("api_intercept_url"):
+        elif competitor.get("api_wp_rest_url"):
+            all_jobs = _fetch_wp_rest_jobs(competitor)
+        elif competitor.get("api_intercept_url") and competitor.get("api_type") == "adecco_post":
             all_jobs = _fetch_adecco_jobs_via_api(competitor)
+        elif competitor.get("api_intercept_url"):
+            all_jobs = _fetch_intercepted_api_jobs(competitor)
         else:
             # Use a high scroll count to load as many jobs as possible via infinite scroll.
             # Default 10 scrolls (~100–150 extra jobs on Teamtailor); override per site.
