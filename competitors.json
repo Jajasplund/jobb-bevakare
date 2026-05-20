@@ -16,5 +16,66 @@
     "url": "https://lediga-jobb.nexerrecruit.com/jobs",
     "job_link_pattern": "nexerrecruit.com/jobs/",
     "use_playwright": true
+  },
+  {
+    "name": "Wise",
+    "url": "https://www.wise.se/lediga-jobb/",
+    "job_link_pattern": "wise.se/jobb/",
+    "use_playwright": true
+  },
+  {
+    "name": "Jurek",
+    "url": "https://jobb.jurek.se/jobs",
+    "job_link_pattern": "jobb.jurek.se/jobs/",
+    "use_playwright": true
+  },
+  {
+    "name": "Novare",
+    "url": "https://novare.se/lediga-jobb/",
+    "job_link_patterns": [
+      "novare.se/executive-search/jobb/",
+      "novare.se/interim-and-recruitment/jobb/",
+      "novare.se/bemanning/jobb/",
+      "novare.se/tech/jobb/"
+    ],
+    "use_playwright": true
+  },
+  {
+    "name": "SJR",
+    "url": "https://sjr.se/lediga-jobb-samling/",
+    "job_link_pattern": "sjr.se/jobb/",
+    "use_playwright": true
+  },
+  {
+    "name": "Randstad",
+    "url": "https://www.randstad.se/jobb/",
+    "job_link_pattern": "randstad.se/jobb/",
+    "use_playwright": true
+  },
+  {
+    "name": "Manpower",
+    "url": "https://www.manpower.se/lediga-jobb",
+    "job_link_pattern": "manpower.se/sv/jobb/",
+    "use_playwright": true
+  },
+  {
+    "name": "Academic Work",
+    "url": "https://www.academicwork.se/lediga-jobb",
+    "job_link_pattern": "academicwork.se/lediga-jobb/j/",
+    "use_playwright": true
+  },
+  {
+    "name": "Poolia",
+    "url": "https://poolia.se/lediga-jobb/",
+    "job_link_pattern": "poolia.se/jobb/",
+    "use_playwright": true,
+    "wait_for_selector": "a[href*='/jobb/']"
+  },
+  {
+    "name": "Experis",
+    "url": "https://www.experis.se/sv/sok?page=1",
+    "job_link_pattern": "experis.se/sv/jobb/",
+    "use_playwright": true,
+    "wait_for_selector": "a[href*='/sv/jobb/']"
   }
 ]

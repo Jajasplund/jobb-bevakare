@@ -71,7 +71,10 @@ US_STATE_ABBREVS = {
 }
 
 LOCATION_CLASSES = re.compile(
-    r"location|city|ort|stad|place|region|område", re.IGNORECASE
+    # Match when keyword starts a word boundary (not preceded by a letter).
+    # Also allow camelCase suffixes like "locationName" (not followed by lowercase).
+    # "place" excluded — too common in Tailwind utility classes (place-content-center etc.)
+    r"(?<![a-zA-Z])(location|city|ort|stad|region|område)(?![a-z])", re.IGNORECASE
 )
 
 GENERIC_LINK_TEXTS = {
@@ -100,6 +103,11 @@ GENERIC_LINK_TEXTS = {
     "öppnas i nytt fönster", "opens in new window",
     "syfte och värderingar", "bolagsstyrning", "ekonomi",
     "anchor", "anchor anchor",
+    # SJR generic CTA
+    "läs mer och ansök",
+    # Novare category labels (appear as anchor text on the job-listing page)
+    "novare bemanning", "novare tech", "novare executive search",
+    "novare interim & recruitment", "novare interim and recruitment",
 }
 
 # Location terms that are valid for filtering but not useful as displayed city
@@ -245,6 +253,44 @@ def get_ancestor_title(anchor):
     return None
 
 
+def title_from_url_slug(href):
+    """Extract a human-readable job title from a URL slug.
+
+    Handles patterns like:
+      /jobb/ekonomichef-till-seb-stockholm/          → "Ekonomichef till SEB Stockholm"
+      /lediga-jobb/j/receptionist-till-nordstjernan/AYP12Q → "Receptionist till Nordstjernan"
+      /jobb/controller_stockholm_uuid               → "Controller"
+    """
+    from urllib.parse import unquote
+    try:
+        path = unquote(href).rstrip("/")
+        parts = [p for p in path.split("/") if p]
+        # Walk from the end, skip short UUID-like segments
+        for slug in reversed(parts):
+            # Skip pure IDs (all digits or short hex-like) and known path-segment words
+            if re.fullmatch(r'[A-Z0-9]{4,8}', slug):
+                continue
+            if re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', slug):
+                continue
+            if slug.lower() in {"j", "jobs", "jobb", "sv", "lediga-jobb", "lediga_jobb"}:
+                continue
+            # Randstad pattern: "title_city_uuid" — strip trailing underscore-separated UUID
+            slug = re.sub(r'_[0-9a-f-]{8,}$', '', slug)
+            slug = re.sub(r'_[a-z]{2,12}_[0-9a-f-]{8,}$', '', slug)
+            # Split on dashes (and underscores used as word separators)
+            words = re.split(r'[-_]', slug)
+            words = [w for w in words if w and not re.fullmatch(r'\d+', w)]
+            if len(words) < 2:
+                continue
+            # Capitalize first word, keep rest as-is for proper nouns
+            title = " ".join(w.capitalize() for w in words)
+            if 5 < len(title) < 150:
+                return title
+    except Exception:
+        pass
+    return None
+
+
 def clean_title(title):
     """Strip common metadata appended after the job title."""
     title = re.sub(r'^Läs mer om\s+', '', title).strip()
@@ -261,6 +307,12 @@ def clean_title(title):
     for suffix in ["Öppnas i nytt fönster", "Opens in new window"]:
         if suffix in title:
             title = title.replace(suffix, "").strip()
+    # Normalize ALL-CAPS titles (e.g. Wise: "BUTIKSCHEF / AHLSELL / MÖLNDAL")
+    # Only apply when >80% of letters are uppercase and title is >10 chars
+    letters = [c for c in title if c.isalpha()]
+    if len(letters) > 8 and sum(1 for c in letters if c.isupper()) / len(letters) > 0.8:
+        # Capitalize each whitespace-separated token, preserve "/" and "-"
+        title = " ".join(w.capitalize() for w in title.split())
     return title
 
 
@@ -276,6 +328,10 @@ def extract_city_from_dom(anchor):
                 if text and len(text) < 36:
                     # Skip CamelCase-concatenated text (title+city merged, e.g. "ExamensarbeteSödertälje")
                     if re.search(r'[a-zåäö][A-ZÅÄÖ]', text):
+                        continue
+                    # Skip text containing parentheses/brackets — these are role/category labels
+                    # e.g. "IT-projektledare (deltid)Stockholm" from Teamtailor filter widgets
+                    if re.search(r'[(){}\[\]]', text):
                         continue
                     return text
     return None
@@ -381,16 +437,30 @@ def parse_jobs_from_html(html, customer, base_url):
 
         full_anchor_text = a.get_text(" ", strip=True)
         raw_title = get_link_title(a).strip()
-        if not raw_title or len(raw_title) <= 3:
-            continue
 
-        # For generic link texts, try to get the real title from ancestor element
+        # Empty / too-short anchor text (e.g. Academic Work invisible overlay links)
+        if not raw_title or len(raw_title) <= 3:
+            ancestor = get_ancestor_title(a)
+            if ancestor:
+                raw_title = ancestor
+            else:
+                slug_title = title_from_url_slug(href)
+                if slug_title:
+                    raw_title = slug_title
+                else:
+                    continue
+
+        # For generic link texts, try ancestor heading then URL slug
         if raw_title.lower() in GENERIC_LINK_TEXTS:
             ancestor = get_ancestor_title(a)
             if ancestor:
                 raw_title = ancestor
             else:
-                continue
+                slug_title = title_from_url_slug(href)
+                if slug_title:
+                    raw_title = slug_title
+                else:
+                    continue
 
         # Skip remaining generic/navigation titles
         if raw_title.lower() in GENERIC_LINK_TEXTS:
@@ -586,7 +656,7 @@ def fetch_jobs_playwright(customer):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             )
             try:
                 page.goto(url, timeout=30000, wait_until="networkidle")
@@ -841,14 +911,23 @@ def _fetch_html_for_site(site):
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 page = browser.new_page(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                 )
                 try:
                     page.goto(url, timeout=30000, wait_until="networkidle")
                 except Exception:
                     page.wait_for_timeout(8000)
                 page.wait_for_timeout(2000)
-                html = page.content()
+                try:
+                    html = page.content()
+                except Exception:
+                    page.wait_for_timeout(3000)
+                    try:
+                        html = page.content()
+                    except Exception as e2:
+                        print(f"  Playwright-fel ({site.get('name', url)}): page.content: {e2}")
+                        browser.close()
+                        return None
                 browser.close()
                 return html
         except Exception as e:
