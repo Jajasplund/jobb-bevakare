@@ -1,0 +1,20 @@
+[
+  {
+    "name": "Amendo",
+    "url": "https://jobb.amendo.se/jobs",
+    "job_link_pattern": "jobb.amendo.se/jobs/",
+    "use_playwright": true
+  },
+  {
+    "name": "Ants",
+    "url": "https://jobb.ants.se/jobs",
+    "job_link_pattern": "jobb.ants.se/jobs/",
+    "use_playwright": true
+  },
+  {
+    "name": "Nexer Recruit",
+    "url": "https://lediga-jobb.nexerrecruit.com/jobs",
+    "job_link_pattern": "nexerrecruit.com/jobs/",
+    "use_playwright": true
+  }
+]

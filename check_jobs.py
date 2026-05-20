@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup, NavigableString, Tag, Comment
 from datetime import datetime
 
 CUSTOMERS_FILE = "customers.json"
+COMPETITORS_FILE = "competitors.json"
 SEEN_JOBS_FILE = "seen_jobs.json"
 
 BLUE_COLLAR_KEYWORDS = [
@@ -646,9 +647,23 @@ def _job_li(j):
     return f'<li style="margin-bottom:4px;"><a href="{url}" style="color:#0055cc;">{title}</a>{city}</li>'
 
 
-def build_email_body(new_by_category):
+def build_email_body(new_by_category, competitor_jobs=None, customer_categories=None):
+    """Build HTML email body.
+
+    competitor_jobs: {customer_name: {competitor_name: [job_dict]}}
+    customer_categories: {customer_name: category}
+    """
     today = datetime.now().strftime("%Y-%m-%d")
-    total = sum(len(jobs) for companies in new_by_category.values() for jobs in companies.values())
+    competitor_jobs = competitor_jobs or {}
+    customer_categories = customer_categories or {}
+
+    own_total = sum(len(jobs) for companies in new_by_category.values() for jobs in companies.values())
+    comp_total = sum(
+        len(jobs)
+        for by_comp in competitor_jobs.values()
+        for jobs in by_comp.values()
+    )
+    total = own_total + comp_total
 
     h = []
     h.append('<!DOCTYPE html><html><head><meta charset="utf-8"></head>')
@@ -656,16 +671,28 @@ def build_email_body(new_by_category):
     h.append(f'<p style="color:#888;font-size:13px;margin-bottom:2px;">Jobbannons-bevakning – {today}</p>')
     h.append(f'<h2 style="margin-top:0;">{total} nya annonser</h2>')
 
+    # Collect all companies with any new jobs (own or competitor)
+    all_companies = {}  # category -> set of company names
+    for category, companies in new_by_category.items():
+        for name in companies:
+            all_companies.setdefault(category, set()).add(name)
+    for cust_name, cat in customer_categories.items():
+        if cust_name in competitor_jobs:
+            all_companies.setdefault(cat, set()).add(cust_name)
+
     for category in ["Fokuskund", "KAM-kund"]:
-        companies = new_by_category.get(category, {})
-        if not companies:
+        companies_in_cat = all_companies.get(category, set())
+        if not companies_in_cat:
             continue
         h.append(f'<h3 style="background:#f4f4f4;padding:8px 12px;margin:28px 0 8px;border-left:4px solid #333;">📌 {category.upper()}ER</h3>')
 
-        for company_name, jobs in sorted(companies.items()):
+        for company_name in sorted(companies_in_cat):
             h.append(f'<h4 style="margin:16px 0 4px;">{html_module.escape(company_name)}</h4>')
-            white = [j for j in jobs if not j["blue_collar"]]
-            blue = [j for j in jobs if j["blue_collar"]]
+
+            # Own jobs
+            own_jobs = new_by_category.get(category, {}).get(company_name, [])
+            white = [j for j in own_jobs if not j["blue_collar"]]
+            blue  = [j for j in own_jobs if j["blue_collar"]]
             if white:
                 h.append('<p style="margin:4px 0;font-weight:bold;">👔 Tjänstemän</p>')
                 h.append('<ul style="margin:0 0 8px;padding-left:20px;">')
@@ -679,15 +706,32 @@ def build_email_body(new_by_category):
                     h.append(_job_li(j))
                 h.append('</ul>')
 
+            # Competitor jobs
+            by_comp = competitor_jobs.get(company_name, {})
+            if by_comp:
+                h.append('<p style="margin:12px 0 4px;font-weight:bold;">🔍 Via rekryteringsbolag</p>')
+                for comp_name, jobs in sorted(by_comp.items()):
+                    h.append(f'<p style="margin:2px 0 2px 12px;font-style:italic;color:#555;">{html_module.escape(comp_name)}</p>')
+                    h.append('<ul style="margin:0 0 8px;padding-left:32px;">')
+                    for j in jobs:
+                        h.append(_job_li(j))
+                    h.append('</ul>')
+
     h.append('<hr style="border:none;border-top:1px solid #ddd;margin-top:28px;">')
     h.append('<p style="color:#aaa;font-size:11px;text-align:center;">Jobbannons-bevakaren (GitHub Actions)</p>')
     h.append('</body></html>')
     return "\n".join(h)
 
 
-def write_output(new_by_category):
-    body = build_email_body(new_by_category)
-    total = sum(len(jobs) for companies in new_by_category.values() for jobs in companies.values())
+def write_output(new_by_category, competitor_jobs=None, customer_categories=None):
+    body = build_email_body(new_by_category, competitor_jobs, customer_categories)
+    own_total = sum(len(jobs) for companies in new_by_category.values() for jobs in companies.values())
+    comp_total = sum(
+        len(jobs)
+        for by_comp in (competitor_jobs or {}).values()
+        for jobs in by_comp.values()
+    )
+    total = own_total + comp_total
     today = datetime.now().strftime("%Y-%m-%d")
 
     with open("email_subject.txt", "w", encoding="utf-8") as f:
@@ -771,6 +815,113 @@ def debug_company(customer):
         print("Inga matchande ankare hittades — kontrollera job_link_pattern")
 
 
+def match_customer_for_competitor_job(href, title, customers):
+    """Return matching customer if the job URL or title mentions one of our customers."""
+    from urllib.parse import unquote
+    slug = unquote(href).lower()
+    title_lower = title.lower()
+    for customer in customers:
+        for term in customer.get("competitor_slugs", []):
+            t = re.escape(term.lower())
+            # URL: term as a whole slug-word bounded by / or -
+            if re.search(r'(?:^|[-/])' + t + r'(?:[-/]|$)', slug):
+                return customer
+            # Title: term as a whole word (Swedish word boundary)
+            if re.search(r'(?<![a-zåäö])' + t + r'(?![a-zåäö])', title_lower):
+                return customer
+    return None
+
+
+def _fetch_html_for_site(site):
+    """Fetch rendered HTML for a site dict (has 'url' and optional 'use_playwright')."""
+    url = site["url"]
+    if site.get("use_playwright"):
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                )
+                try:
+                    page.goto(url, timeout=30000, wait_until="networkidle")
+                except Exception:
+                    page.wait_for_timeout(8000)
+                page.wait_for_timeout(2000)
+                html = page.content()
+                browser.close()
+                return html
+        except Exception as e:
+            print(f"  Playwright-fel ({site.get('name', url)}): {e}")
+            return None
+    else:
+        try:
+            resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            return resp.text
+        except Exception as e:
+            print(f"  Requests-fel ({site.get('name', url)}): {e}")
+            return None
+
+
+def fetch_all_competitor_jobs(competitors, customers):
+    """Scrape competitor sites and match jobs to our customers.
+
+    Returns: {customer_name: {competitor_name: [job_dict, ...]}}
+    """
+    result = {}
+
+    for competitor in competitors:
+        comp_name = competitor["name"]
+        print(f"\nScannar {comp_name}...")
+
+        html = _fetch_html_for_site(competitor)
+        if not html:
+            continue
+
+        soup = BeautifulSoup(html, "html.parser")
+        patterns = get_patterns(competitor)
+        base_url = competitor["url"]
+        seen_urls = set()
+        matched_count = 0
+
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if href.startswith("/"):
+                base = base_url.split("/")[0] + "//" + base_url.split("/")[2]
+                href = base + href
+            if not href_matches(href, patterns) or href in seen_urls:
+                continue
+
+            raw_title = get_link_title(a).strip()
+            if not raw_title or len(raw_title) <= 3:
+                continue
+            if raw_title.lower() in GENERIC_LINK_TEXTS:
+                continue
+            title = clean_title(raw_title)
+            if not title or len(title) <= 3:
+                continue
+
+            customer = match_customer_for_competitor_job(href, title, customers)
+            if not customer:
+                continue
+
+            cust_name = customer["name"]
+            seen_urls.add(href)
+            matched_count += 1
+            result.setdefault(cust_name, {}).setdefault(comp_name, []).append({
+                "id": href,
+                "title": title,
+                "url": href,
+                "city": "",
+                "competitor": comp_name,
+            })
+
+        print(f"  → {comp_name}: {matched_count} kundmatchningar")
+
+    return result
+
+
 def main():
     force = "--force" in sys.argv
     if force:
@@ -791,6 +942,7 @@ def main():
 
     customers = load_json(CUSTOMERS_FILE)
     seen_cache = load_json(SEEN_JOBS_FILE)
+    customer_categories = {c["name"]: c.get("category", "KAM-kund") for c in customers}
     new_by_category = {}
 
     for customer in customers:
@@ -816,11 +968,52 @@ def main():
 
         seen_cache[name] = list(current_ids)
 
+    # --- Konkurrentscanning ---
+    new_competitor_jobs = {}  # {customer_name: {competitor_name: [jobs]}}
+    try:
+        competitors = load_json(COMPETITORS_FILE)
+    except Exception:
+        competitors = []
+
+    if competitors:
+        print("\n" + "="*50)
+        print("KONKURRENTSÖKNING")
+        print("="*50)
+
+        competitor_first_run = "_konkurrenter" not in seen_cache
+        seen_competitor_ids = set(seen_cache.get("_konkurrenter", []))
+
+        all_matches = fetch_all_competitor_jobs(competitors, customers)
+        all_new_competitor_ids = []
+
+        for cust_name, by_comp in all_matches.items():
+            for comp_name, jobs in by_comp.items():
+                if competitor_first_run or force:
+                    # Första körningen: spara allt men skicka inget (om ej force)
+                    all_new_competitor_ids.extend(j["id"] for j in jobs)
+                    if force:
+                        new_competitor_jobs.setdefault(cust_name, {})[comp_name] = jobs
+                else:
+                    new_jobs = [j for j in jobs if j["id"] not in seen_competitor_ids]
+                    if new_jobs:
+                        all_new_competitor_ids.extend(j["id"] for j in new_jobs)
+                        new_competitor_jobs.setdefault(cust_name, {})[comp_name] = new_jobs
+                        print(f"  🆕 {comp_name} → {cust_name}: {len(new_jobs)} nya")
+
+        if competitor_first_run and not force:
+            total_found = sum(len(j) for by_comp in all_matches.values() for j in by_comp.values())
+            print(f"  ℹ️  Första konkurrentkörningen – sparar {total_found} annonser utan notis")
+
+        seen_cache["_konkurrenter"] = list(seen_competitor_ids | set(all_new_competitor_ids))
+
     save_json(SEEN_JOBS_FILE, seen_cache)
     print("\n💾 Cache sparad")
 
-    if new_by_category:
-        write_output(new_by_category)
+    has_own = bool(new_by_category)
+    has_competitor = bool(new_competitor_jobs)
+
+    if has_own or has_competitor:
+        write_output(new_by_category, new_competitor_jobs, customer_categories)
     else:
         print("Inga nya annonser den här veckan")
         open("email_subject.txt", "w").close()

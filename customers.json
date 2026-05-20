@@ -4,13 +4,15 @@
     "category": "Fokuskund",
     "url": "https://jobb.adda.se/jobs",
     "job_link_pattern": "jobb.adda.se/jobs/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["adda"]
   },
   {
     "name": "Ahlsell",
     "category": "Fokuskund",
     "url": "https://jobb.ahlsell.se/jobs",
-    "job_link_pattern": "jobb.ahlsell.se/jobs/"
+    "job_link_pattern": "jobb.ahlsell.se/jobs/",
+    "competitor_slugs": ["ahlsell"]
   },
   {
     "name": "Atlas Copco",
@@ -18,34 +20,39 @@
     "url": "https://www.atlascopco.com/sv-se/jobs/job-overview?country=Sweden",
     "job_link_pattern": "atlascopco.com/sv-se/jobs/job-overview/job-detail",
     "use_playwright": true,
-    "wait_for_selector": "a[href*='job-detail']"
+    "wait_for_selector": "a[href*='job-detail']",
+    "competitor_slugs": ["atlas-copco", "atlascopco"]
   },
   {
     "name": "ICA",
     "category": "Fokuskund",
     "url": "https://karriar.icagruppen.se/se/sv/search-results",
     "job_link_pattern": "karriar.icagruppen.se/se/sv/job/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["ica", "icagruppen"]
   },
   {
     "name": "Orkla Foods",
     "category": "Fokuskund",
     "url": "https://careers.orkla.com/orklafoods/go/Jobs-in-Orkla-Foods/9486701/",
     "job_link_pattern": "careers.orkla.com/orklafoods/job/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["orkla"]
   },
   {
     "name": "PostNord",
     "category": "Fokuskund",
     "url": "https://group.postnord.com/sv/careers/lediga-jobb/?jobCategory=Chef+%26+Ledarskap%3BFinans%3BIT%3BProduktions-+%26+Trafikledare%3BS%C3%A4lj+%26+Aff%C3%A4rsutveckling",
     "job_link_pattern": "postnord.com/sv/careers/lediga-jobb/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["postnord"]
   },
   {
     "name": "Scania",
     "category": "Fokuskund",
     "url": "https://jobs.scania.com/search/?q=%22Scania+Sverige%22",
-    "job_link_pattern": "jobs.scania.com/job/"
+    "job_link_pattern": "jobs.scania.com/job/",
+    "competitor_slugs": ["scania"]
   },
   {
     "name": "St1",
@@ -57,20 +64,23 @@
       "jeffersonwells.se/sv/jobb",
       "signpost.se/lediga-uppdrag",
       "intensogruppen.se/sv/ad"
-    ]
+    ],
+    "competitor_slugs": ["st1"]
   },
   {
     "name": "VR Sverige",
     "category": "Fokuskund",
     "url": "https://www.vrsverige.com/jobba-hos-oss/",
-    "job_link_pattern": "vrsverige.com/jobba-hos-oss/job?job_id="
+    "job_link_pattern": "vrsverige.com/jobba-hos-oss/job?job_id=",
+    "competitor_slugs": ["vr-sverige", "vrsverige"]
   },
   {
     "name": "AMF Tjänstepension",
     "category": "KAM-kund",
     "url": "https://cdn.jobylon.com/jobs/company-groups/210/embed/v2/",
     "job_link_pattern": "jobylon.com/jobs/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["amf"]
   },
   {
     "name": "Axfood",
@@ -84,108 +94,124 @@
       "jobb.axfood.se/snabbgross/job",
       "jobb.axfood.se/axfood/job"
     ],
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["axfood"]
   },
   {
     "name": "Green Cargo",
     "category": "KAM-kund",
     "url": "https://www.greencargo.com/karriar/lediga-jobb",
     "job_link_pattern": "greencargo.com/karriar/lediga-jobb/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["green-cargo", "greencargo"]
   },
   {
     "name": "Handelsbanken",
     "category": "KAM-kund",
     "url": "https://www.handelsbanken.se/sv/om-oss/jobba-hos-oss/lediga-jobb",
     "job_link_pattern": "emp.jobylon.com/jobs/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["handelsbanken"]
   },
   {
     "name": "Nynäshamns Kommun",
     "category": "KAM-kund",
     "url": "https://nynashamn.se/service/organisation--styrning/jobba-pa-nynashamns-kommun/lediga-jobb",
     "job_link_pattern": "nynashamn.se/service/organisation--styrning/jobba-pa-nynashamns-kommun/lediga-jobb/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["nynashamn"]
   },
   {
     "name": "Kammarkollegiet",
     "category": "KAM-kund",
     "url": "https://www.kammarkollegiet.se/jobba-har/lediga-jobb",
     "job_link_pattern": "kammarkollegiet.se/jobba-har/lediga-jobb/position",
-    "default_city": "Stockholm"
+    "default_city": "Stockholm",
+    "competitor_slugs": ["kammarkollegiet"]
   },
   {
     "name": "KellyOCG",
     "category": "KAM-kund",
     "url": "https://careers.kellyocg.com/careers/search",
-    "job_link_pattern": "kellyocg.com/careers/"
+    "job_link_pattern": "kellyocg.com/careers/",
+    "competitor_slugs": []
   },
   {
     "name": "Skandia",
     "category": "KAM-kund",
     "url": "https://karriar.skandia.se/jobs",
     "job_link_pattern": "karriar.skandia.se/jobs/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["skandia"]
   },
   {
     "name": "Länsförsäkringar",
     "category": "KAM-kund",
     "url": "https://jobb.lansforsakringar.se/alla-lediga-jobb/",
     "job_link_pattern": "jobb.lansforsakringar.se/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["lansforsakringar"]
   },
   {
     "name": "SEB",
     "category": "KAM-kund",
     "url": "https://sebgroup.com/sv/karriar/hitta-ditt-nya-jobb/vara-lediga-tjanster",
     "job_link_pattern": "sebgroup.com/sv/karriar/hitta-ditt-nya-jobb/vara-lediga-tjanster/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["seb"]
   },
   {
     "name": "Skanska",
     "category": "KAM-kund",
     "url": "https://www.skanska.se/om-skanska/jobba-hos-oss/lediga-jobb/?CountryCode=SE",
     "job_link_pattern": "skanska.se/om-skanska/jobba-hos-oss/lediga-jobb/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["skanska"]
   },
   {
     "name": "Svea Bank",
     "category": "KAM-kund",
     "url": "https://career.svea.com/jobs",
     "job_link_pattern": "career.svea.com/jobs/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["svea"]
   },
   {
     "name": "SVT",
     "category": "KAM-kund",
     "url": "https://omoss.svt.se/jobba-har/alla-lediga-tjanster.html",
-    "job_link_pattern": "emp.jobylon.com/jobs/"
+    "job_link_pattern": "emp.jobylon.com/jobs/",
+    "competitor_slugs": ["svt"]
   },
   {
     "name": "Swedbank",
     "category": "KAM-kund",
     "url": "https://jobs.swedbank.com/",
     "job_link_pattern": "jobs.swedbank.com/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["swedbank"]
   },
   {
     "name": "Teracom",
     "category": "KAM-kund",
     "url": "https://teracom.se/jobba-hos-oss/lediga-jobb",
-    "job_link_pattern": "teracom.se/jobb/"
+    "job_link_pattern": "teracom.se/jobb/",
+    "competitor_slugs": ["teracom"]
   },
   {
     "name": "Toyota Material Handling",
     "category": "KAM-kund",
     "url": "https://toyota-forklifts.se/lediga-tjanster/?country=175",
     "job_link_pattern": "toyota-forklifts.se/lediga-tjanster/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["toyota"]
   },
   {
     "name": "Volkswagen",
     "category": "KAM-kund",
     "url": "https://karriar.vwgroup.se/jobs",
     "job_link_pattern": "karriar.vwgroup.se/jobs/",
-    "use_playwright": true
+    "use_playwright": true,
+    "competitor_slugs": ["volkswagen", "vw-group"]
   }
 ]
