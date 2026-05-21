@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag, Comment
 from datetime import datetime
@@ -109,6 +110,15 @@ GENERIC_LINK_TEXTS = {
     "novare bemanning", "novare tech", "novare executive search",
     "novare interim & recruitment", "novare interim and recruitment",
 }
+
+def _ascii_fold(text):
+    """Strip diacritics: 'Göteborg' → 'Goteborg', 'på' → 'pa'."""
+    return unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii")
+
+# Pre-computed ASCII-folded version of GENERIC_LINK_TEXTS for slug-based titles
+# (URL slugs lose å/ä/ö so "jag-ar-skanska" → "jag ar skanska" won't match
+#  "jag är skanska" without this fallback set)
+GENERIC_LINK_TEXTS_ASCII = {_ascii_fold(t) for t in GENERIC_LINK_TEXTS}
 
 # Location terms that are valid for filtering but not useful as displayed city
 ABSTRACT_LOCATIONS = {
@@ -451,7 +461,9 @@ def parse_jobs_from_html(html, customer, base_url):
                     continue
 
         # For generic link texts, try ancestor heading then URL slug
-        if raw_title.lower() in GENERIC_LINK_TEXTS:
+        _rt_lower = raw_title.lower()
+        _rt_ascii  = _ascii_fold(_rt_lower)
+        if _rt_lower in GENERIC_LINK_TEXTS or _rt_ascii in GENERIC_LINK_TEXTS_ASCII:
             ancestor = get_ancestor_title(a)
             if ancestor:
                 raw_title = ancestor
@@ -463,7 +475,9 @@ def parse_jobs_from_html(html, customer, base_url):
                     continue
 
         # Skip remaining generic/navigation titles
-        if raw_title.lower() in GENERIC_LINK_TEXTS:
+        _rt_lower = raw_title.lower()
+        _rt_ascii  = _ascii_fold(_rt_lower)
+        if _rt_lower in GENERIC_LINK_TEXTS or _rt_ascii in GENERIC_LINK_TEXTS_ASCII:
             continue
 
         title = clean_title(raw_title)
@@ -1506,6 +1520,10 @@ def fetch_all_competitor_jobs(competitors, customers):
             customer = match_customer_for_competitor_job(job["url"], job["title"], customers)
             if not customer:
                 continue
+            # Fetch city for matched jobs that are missing it — only ~5–40 requests per run
+            if not job.get("city") and job.get("url"):
+                fetched = fetch_city_for_job(job["url"])
+                job["city"] = clean_city(fetched) if fetched else ""
             cust_name = customer["name"]
             matched_count += 1
             job["competitor"] = comp_name

@@ -101,7 +101,7 @@
     "name": "Green Cargo",
     "category": "KAM-kund",
     "url": "https://www.greencargo.com/karriar/lediga-jobb",
-    "job_link_pattern": "greencargo.com/karriar/lediga-jobb/",
+    "job_link_pattern": "emp.jobylon.com/jobs/",
     "use_playwright": true,
     "competitor_slugs": ["green-cargo", "greencargo"]
   },
@@ -164,7 +164,7 @@
     "name": "Skanska",
     "category": "KAM-kund",
     "url": "https://www.skanska.se/om-skanska/jobba-hos-oss/lediga-jobb/?CountryCode=SE",
-    "job_link_pattern": "skanska.se/om-skanska/jobba-hos-oss/lediga-jobb/",
+    "job_link_pattern": "emp.jobylon.com/jobs/",
     "use_playwright": true,
     "competitor_slugs": ["skanska"]
   },
