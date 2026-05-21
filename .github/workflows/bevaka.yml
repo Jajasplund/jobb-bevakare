@@ -1,8 +1,8 @@
 name: Jobbannons-bevakning
 
 on:
-  schedule:
-    - cron: '0 7 * * 1'  # Varje måndag kl 07:00
+  # Schemat sköts av cron-job.org via workflow_dispatch nedan.
+  # GitHub Actions inbyggda schedule är borttagen för att undvika dubbelkörningar.
   workflow_dispatch:
     inputs:
       force:
@@ -53,6 +53,16 @@ jobs:
               --ssl-reqd \
               --mail-from "${{ secrets.MAIL_FROM }}" \
               --mail-rcpt "jari.asplund@tng.se" \
+              --mail-rcpt "anna.nydahl@tng.se" \
+              --mail-rcpt "annika.jepsson@tng.se" \
+              --mail-rcpt "charlotte.ulvros@tng.se" \
+              --mail-rcpt "mathias.jonsson@adadigital.se" \
+              --mail-rcpt "niklas.bragee@tng.se" \
+              --mail-rcpt "par.johansson@tng.se" \
+              --mail-rcpt "asa.edman@tng.se" \
+              --mail-rcpt "johan.nilsson@tng.se" \
+              --mail-rcpt "tomas.larsson@tng.se" \
+              --mail-rcpt "emil.lindberg@tng.se" \
               --user "${{ secrets.MAIL_FROM }}:${{ secrets.MAIL_PASSWORD }}" \
               -T /tmp/email_message.txt
             echo "Mejl skickat"
