@@ -20,6 +20,7 @@
     "url": "https://www.atlascopco.com/sv-se/jobs/job-overview?country=Sweden",
     "job_link_pattern": "atlascopco.com/sv-se/jobs/job-overview/job-detail",
     "use_playwright": true,
+    "use_playwright_city": true,
     "wait_for_selector": "a[href*='job-detail']",
     "competitor_slugs": ["atlas-copco", "atlascopco"]
   },
@@ -95,6 +96,7 @@
       "jobb.axfood.se/axfood/job"
     ],
     "use_playwright": true,
+    "use_playwright_city": true,
     "competitor_slugs": ["axfood"]
   },
   {

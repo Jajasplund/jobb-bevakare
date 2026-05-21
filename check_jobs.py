@@ -42,6 +42,16 @@ SWEDISH_CITIES = {
     "arendal", "kiruna", "mjällby", "sölvesborg",
     "stenungsund", "eslöv", "vetlanda", "charlottenberg", "åmål", "storlien",
     "halland", "skåne", "dalarna", "värmland", "blekinge",
+    # Additional municipalities / areas common in job postings
+    "sollentuna", "sundbyberg", "märsta", "luleå", "ystad", "motala",
+    "örnsköldsvik", "kramfors", "härnösand", "mjölby", "finspång",
+    "tranås", "eksjö", "nässjö", "ljungby", "alvesta", "värnamo",
+    "piteå", "boden", "ludvika", "fagersta", "köping", "arboga",
+    "västervik", "vimmerby", "oskarshamn", "nybro", "ronneby", "karlshamn",
+    "trelleborg", "vellinge", "klippan", "åstorp", "höganäs", "ängelholm",
+    "hässleholm", "osby", "bromölla", "olofström",
+    "tierp", "älvsjö", "spånga", "vällingby", "hammarby",
+    "kungens kurva",  # industrial/retail area south of Stockholm
     "remote", "distans", "hybridarbete", "hybrid", "hela sverige", "hela landet", "sverige", "sweden",
 }
 
@@ -109,6 +119,12 @@ GENERIC_LINK_TEXTS = {
     # Novare category labels (appear as anchor text on the job-listing page)
     "novare bemanning", "novare tech", "novare executive search",
     "novare interim & recruitment", "novare interim and recruitment",
+    # Swedbank navigation/category labels (with and without commas)
+    "sso login", "data privacy",
+    "people marketing communication and support",
+    "risk management compliance and legal",
+    # Volkswagen catch-all pages
+    "examensarbete", "praktikförfrågan", "praktikforfragan",
 }
 
 def _ascii_fold(text):
@@ -383,6 +399,11 @@ def fetch_city_for_job(url):
         soup = BeautifulSoup(resp.text, "html.parser")
     except Exception:
         return None
+    # Teamtailor detail pages: <span class="at-location">City</span>
+    for tag in soup.find_all(class_="at-location"):
+        text = clean_city(tag.get_text(strip=True))
+        if text and 1 < len(text) < 40:
+            return text
     # Teamtailor detail pages: <dt>Platser</dt><dd>Stockholm</dd>
     for dt in soup.find_all("dt"):
         label = dt.get_text(strip=True).lower()
@@ -419,6 +440,15 @@ def fetch_city_for_job(url):
         text = clean_city(tag.get_text(strip=True))
         if text and len(text) < 40:
             return text
+    # Inline script JSON with "location" field (Teracom / registerInitialState pattern)
+    for script in soup.find_all("script"):
+        text = script.string or ""
+        if '"location"' in text:
+            m = re.search(r'"location"\s*:\s*"([^"]{2,80})"', text)
+            if m:
+                city = clean_city(m.group(1).rstrip("."))
+                if city and 1 < len(city) < 60:
+                    return city
     # Elements with location-related classes or ids — only return known Swedish cities
     for tag in soup.find_all(True):
         classes = " ".join(tag.get("class", []))
@@ -427,7 +457,165 @@ def fetch_city_for_job(url):
             text = clean_city(tag.get_text(strip=True))
             if text and 2 < len(text) < 40 and text.lower() in SWEDISH_CITIES:
                 return text
+    # URL slug as last resort — extract city from path (e.g. Scania URLs contain city name)
+    try:
+        from urllib.parse import unquote
+        url_words = re.findall(r'[a-zA-ZåäöÅÄÖ]+', unquote(url.split("?")[0]))
+        for word in reversed(url_words):
+            if word.lower() in SWEDISH_CITIES and word.lower() not in ABSTRACT_LOCATIONS:
+                return word[0].upper() + word[1:]
+        for i in range(len(url_words) - 1):
+            bigram = (url_words[i] + " " + url_words[i + 1]).lower()
+            if bigram in SWEDISH_CITIES and bigram not in ABSTRACT_LOCATIONS:
+                return " ".join(w.capitalize() for w in bigram.split())
+    except Exception:
+        pass
     return None
+
+
+def _parse_city_from_soup(soup, url=""):
+    """Extract city from a BeautifulSoup object using all available methods.
+    Shared by fetch_city_for_job (requests) and the Playwright variant."""
+    # Teamtailor: <span class="at-location">City</span>
+    for tag in soup.find_all(class_="at-location"):
+        text = clean_city(tag.get_text(strip=True))
+        if text and 1 < len(text) < 40:
+            return text
+    # dt/dd label pattern (older Teamtailor, Intelliplan, etc.)
+    for dt in soup.find_all("dt"):
+        label = dt.get_text(strip=True).lower()
+        if label in ("platser", "plats", "location", "locations", "ort"):
+            dd = dt.find_next_sibling("dd")
+            if dd:
+                city = clean_city(dd.get_text(strip=True))
+                if city and 1 < len(city) < 40:
+                    return city
+    # Orkla / Taleo label spans
+    for label_span in soup.find_all("span", class_="joblayouttoken-label"):
+        if "job posting city" in label_span.get_text(strip=True).lower():
+            city_span = label_span.find_next_sibling("span")
+            if city_span:
+                city = clean_city(city_span.get_text(strip=True))
+                if city and 1 < len(city) < 40:
+                    return city
+    # JSON-LD structured data (JobPosting schema)
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+            if isinstance(data, dict):
+                loc = data.get("jobLocation", {})
+                if isinstance(loc, dict):
+                    addr = loc.get("address", {})
+                    if isinstance(addr, dict):
+                        city = addr.get("addressLocality", "")
+                        if city:
+                            return clean_city(city)
+        except Exception:
+            pass
+    # Schema.org microdata
+    for tag in soup.find_all(attrs={"itemprop": "addressLocality"}):
+        text = clean_city(tag.get_text(strip=True))
+        if text and len(text) < 40:
+            return text
+    # Inline script "location" JSON field (Teracom / registerInitialState pattern)
+    for script in soup.find_all("script"):
+        text = script.string or ""
+        if '"location"' in text:
+            m = re.search(r'"location"\s*:\s*"([^"]{2,80})"', text)
+            if m:
+                city = clean_city(m.group(1).rstrip("."))
+                if city and 1 < len(city) < 60:
+                    return city
+    # Elements with location-related classes/ids
+    for tag in soup.find_all(True):
+        classes = " ".join(tag.get("class", []))
+        tag_id = tag.get("id", "")
+        if LOCATION_CLASSES.search(classes) or LOCATION_CLASSES.search(tag_id):
+            text = clean_city(tag.get_text(strip=True))
+            if text and 2 < len(text) < 40 and text.lower() in SWEDISH_CITIES:
+                return text
+    # Meta description — scan for known Swedish cities (e.g. Toyota pages)
+    meta_desc = soup.find("meta", attrs={"name": "description"})
+    if meta_desc:
+        desc_content = (meta_desc.get("content") or "").lower()
+        if desc_content:
+            # Check longest city names first to avoid partial matches (e.g. "lund" inside "lundby")
+            for city in sorted(SWEDISH_CITIES - ABSTRACT_LOCATIONS, key=len, reverse=True):
+                if len(city) < 4:
+                    continue
+                if re.search(r'(?<!\w)' + re.escape(city) + r'(?!\w)', desc_content):
+                    return city[0].upper() + city[1:]
+    # Body text scan — for pages where city only appears in prose (Toyota, etc.)
+    body_text = soup.get_text(" ", strip=True).lower()
+    if body_text:
+        # 1. Explicit label patterns: "plats: göteborg" or "ort: malmö"
+        #    No lookahead needed — [a-zåäö\s] stops at ":" or digits naturally.
+        m = re.search(r'(?:plats|ort|location|stad)\s*:\s*([a-zåäö\s]{2,35})',
+                      body_text)
+        if m:
+            candidate_text = m.group(1).strip()
+            for city in sorted(SWEDISH_CITIES - ABSTRACT_LOCATIONS, key=len, reverse=True):
+                if len(city) < 4:
+                    continue
+                if re.search(r'(?<!\w)' + re.escape(city) + r'(?!\w)', candidate_text):
+                    return city[0].upper() + city[1:]
+        # 2. Preposition patterns: "(i|in|på|till) {city}" — only for cities ≥5 chars to reduce
+        #    false positives from footer addresses, navigation text etc.
+        for city in sorted(SWEDISH_CITIES - ABSTRACT_LOCATIONS, key=len, reverse=True):
+            if len(city) < 5:
+                continue
+            if re.search(r'(?<!\w)(?:i|in|på|till|vid|nära)\s+' + re.escape(city) + r'(?!\w)',
+                         body_text):
+                return city[0].upper() + city[1:]
+    # URL slug as last resort (e.g. Scania: /job/Kungens-kurva-Title...)
+    if url:
+        try:
+            from urllib.parse import unquote
+            url_words = re.findall(r'[a-zA-ZåäöÅÄÖ]+', unquote(url.split("?")[0]))
+            for word in reversed(url_words):
+                if word.lower() in SWEDISH_CITIES and word.lower() not in ABSTRACT_LOCATIONS:
+                    return word[0].upper() + word[1:]
+            for i in range(len(url_words) - 1):
+                bigram = (url_words[i] + " " + url_words[i + 1]).lower()
+                if bigram in SWEDISH_CITIES and bigram not in ABSTRACT_LOCATIONS:
+                    return " ".join(w.capitalize() for w in bigram.split())
+        except Exception:
+            pass
+    return None
+
+
+def fetch_city_for_job(url):
+    """Fetch individual job page with requests and extract city."""
+    try:
+        resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        soup = BeautifulSoup(resp.text, "html.parser")
+    except Exception:
+        return None
+    return _parse_city_from_soup(soup, url)
+
+
+def fetch_city_for_job_playwright(url):
+    """Playwright-based city fetcher for JS-rendered job pages (Atlas Copco, Axfood, etc.)."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            )
+            try:
+                page.goto(url, timeout=20000, wait_until="networkidle")
+            except Exception:
+                page.wait_for_timeout(5000)
+            content = page.content()
+            browser.close()
+        soup = BeautifulSoup(content, "html.parser")
+        return _parse_city_from_soup(soup, url)
+    except Exception:
+        return None
 
 
 def parse_jobs_from_html(html, customer, base_url):
@@ -548,6 +736,31 @@ def parse_jobs_from_html(html, customer, base_url):
                 else:
                     raw_city = dom_city
 
+        # 3b. Pipe-separated metadata in sibling paragraphs
+        #     (Atlas Copco: <p class="c-caption">Dept | Company | Country | City | Mode</p>)
+        if not raw_city:
+            container = a.parent
+            for _ in range(3):  # walk up at most 3 levels to find a container
+                if not container or container.name in ("body", "html"):
+                    break
+                if container.name in ("article", "li", "div", "section", "tr"):
+                    break
+                container = container.parent if container.parent else None
+            if container:
+                for p in container.find_all(["p", "span"]):
+                    p_text = p.get_text(strip=True)
+                    if "|" in p_text and 2 <= p_text.count("|") <= 6:
+                        for part in p_text.split("|"):
+                            candidate = part.strip().split(",")[0].strip()
+                            if candidate and 2 < len(candidate) < 35:
+                                if candidate.lower() in SWEDISH_CITIES and candidate.lower() not in ABSTRACT_LOCATIONS:
+                                    geo, abst = _accept_city(candidate)
+                                    if not abst:
+                                        raw_city = candidate
+                                        break
+                        if raw_city:
+                            break
+
         # 4. City embedded in title text ("till Stockholm", "i Göteborg", last word)
         if not raw_city:
             title_city = extract_city_from_title(title)
@@ -594,10 +807,18 @@ def parse_jobs_from_html(html, customer, base_url):
             try:
                 from urllib.parse import unquote
                 url_words = re.findall(r'[a-zA-ZåäöÅÄÖ]+', unquote(href.split("?")[0]))
+                # Single-word check (reversed = more specific path segments first)
                 for word in reversed(url_words):
                     if word.lower() in SWEDISH_CITIES and word.lower() not in ABSTRACT_LOCATIONS:
                         raw_city = word[0].upper() + word[1:]
                         break
+                # Bigram check — catches two-word cities like "Kungens kurva" in URL paths
+                if not raw_city:
+                    for i in range(len(url_words) - 1):
+                        bigram = (url_words[i] + " " + url_words[i + 1]).lower()
+                        if bigram in SWEDISH_CITIES and bigram not in ABSTRACT_LOCATIONS:
+                            raw_city = " ".join(w.capitalize() for w in bigram.split())
+                            break
             except Exception:
                 pass
 
@@ -691,9 +912,13 @@ def fetch_jobs_playwright(customer):
         return []
 
     jobs, skipped = parse_jobs_from_html(content, customer, url)
+    # For JS-rendered customers, use Playwright as fallback for jobs still missing city
+    use_pw_city = customer.get("use_playwright_city", False)
     for job in jobs:
         if not job["city"]:
             fetched = fetch_city_for_job(job["url"])
+            if not fetched and use_pw_city:
+                fetched = fetch_city_for_job_playwright(job["url"])
             job["city"] = clean_city(fetched) if fetched else ""
     msg = f"  → {name}: hittade {len(jobs)} annonser (JS)"
     if skipped:
