@@ -63,6 +63,10 @@ jobs:
               --mail-rcpt "johan.nilsson@tng.se" \
               --mail-rcpt "tomas.larsson@tng.se" \
               --mail-rcpt "emil.lindberg@tng.se" \
+              --mail-rcpt "sandra.peiper@adadigital.se" \
+              --mail-rcpt "mikaela.stroberg@adadigital.se" \
+              --mail-rcpt "miguel.olivares@adadigital.se" \
+              --mail-rcpt "linda.segerman@adadigital.se" \
               --user "${{ secrets.MAIL_FROM }}:${{ secrets.MAIL_PASSWORD }}" \
               -T /tmp/email_message.txt
             echo "Mejl skickat"
