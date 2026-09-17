@@ -46,7 +46,7 @@ jobs:
           SUBJECT=$(cat email_subject.txt)
           if [ -n "$SUBJECT" ]; then
             echo "Skickar mejl..."
-            printf "From: Jobbbevakning <%s>\nTo: jari.asplund@tng.se\nSubject: %s\nMIME-Version: 1.0\nContent-Type: text/html; charset=utf-8\n\n" \
+            printf "From: Jobbbevakning <%s>\nTo: jari.asplund@tng.se, anna.nydahl@tng.se, annika.jepsson@tng.se, charlotte.ulvros@tng.se, mathias.jonsson@adadigital.se, niklas.bragee@tng.se, par.johansson@tng.se, asa.edman@tng.se, johan.nilsson@tng.se, tomas.larsson@tng.se, emil.lindberg@tng.se, sandra.peiper@adadigital.se, mikaela.stroberg@adadigital.se, miguel.olivares@adadigital.se, linda.segerman@adadigital.se\nSubject: %s\nMIME-Version: 1.0\nContent-Type: text/html; charset=utf-8\n\n" \
               "${{ secrets.MAIL_FROM }}" "$SUBJECT" > /tmp/email_message.txt
             cat email_body.txt >> /tmp/email_message.txt
             curl -s --url "smtps://smtp.gmail.com:465" \
